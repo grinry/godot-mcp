@@ -1,6 +1,6 @@
 {
-  "name": "godot-mcp",
-  "version": "0.1.1",
+  "name": "@grinry/godot-mcp",
+  "version": "0.1.2",
   "description": "MCP server for interfacing with Godot game engine. Provides tools for launching the editor, running projects, and capturing debug output.",
   "keywords": [
     "godot",
@@ -9,19 +9,19 @@
     "claude",
     "cline"
   ],
-  "homepage": "https://github.com/Coding-Solo/godot-mcp",
+  "homepage": "https://github.com/grinry/godot-mcp",
   "bugs": {
-    "url": "https://github.com/Coding-Solo/godot-mcp/issues"
+    "url": "https://github.com/grinry/godot-mcp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Coding-Solo/godot-mcp.git"
+    "url": "git+https://github.com/grinry/godot-mcp.git"
   },
   "license": "MIT",
   "author": "Solomon Elias <solomon@sippy.ai>",
   "type": "module",
   "bin": {
-    "godot-mcp": "./build/index.js"
+    "godot-mcp": "build/index.js"
   },
   "files": [
     "build"
@@ -30,7 +30,14 @@
     "build": "tsc && node scripts/build.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch",
+    "changeset": "changeset",
+    "version-packages": "changeset version && npm install --package-lock-only --ignore-scripts",
+    "release": "npm run build && changeset publish",
+    "format": "biome format --write .",
+    "lint": "biome lint . --error-on-warnings",
+    "check": "biome check . --error-on-warnings",
+    "check:fix": "biome check --write . --error-on-warnings"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",
@@ -38,10 +45,20 @@
     "fs-extra": "^11.2.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@changesets/cli": "^2.31.1",
     "@types/node": "^20.11.24",
     "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "contributors": [
+    "Solomon Elias <solomon@sippy.ai> (https://github.com/Coding-Solo)",
+    "grinry (https://github.com/grinry)"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

@@ -58,6 +58,22 @@ godot-mcp/
 └── tsconfig.json    # TypeScript configuration
 ```
 
+### Formatting and linting
+
+Biome formats JavaScript, TypeScript, and JSON with two-space indentation and
+single quotes in JavaScript/TypeScript, and applies recommended lint rules and
+import sorting. Generated output and the npm-managed lockfile are excluded.
+GDScript, Markdown, and YAML require separate review.
+
+- `npm run check`: verify formatting, lint, and import sorting without modifying files.
+- `npm run check:fix`: apply formatting, safe lint fixes, and import sorting.
+- `npm run format`: apply formatting only.
+- `npm run lint`: check lint rules only.
+
+Warnings fail checks. The existing server has scoped exceptions for explicit
+`any` and non-null assertions; prefer precise types and explicit guards in new
+code. CI and release workflows run `npm run check`.
+
 ### Code Style
 
 - Follow the existing code style in the project
@@ -185,3 +201,51 @@ When making changes, ensure they work across different platforms:
 If you have any questions about contributing, feel free to open an issue for discussion.
 
 Thank you for your contributions!
+
+## Releases
+
+The public npm package for this fork is `@grinry/godot-mcp`.
+
+### Adding a changeset
+
+1. Run `npm run changeset` after making a releasable change.
+2. Select `@grinry/godot-mcp`, choose the appropriate version bump, and describe the change.
+3. Commit the generated `.changeset/*.md` file with the implementation.
+
+Changesets determines version bumps from these files, rather than commit messages.
+Documentation-only changes do not need a changeset unless they should trigger a release.
+
+### One-time maintainer setup
+
+1. Ensure your npm account owns the `@grinry` scope and can publish `@grinry/godot-mcp`.
+2. In the npm settings for `@grinry/godot-mcp`, add a **Trusted Publisher** for
+   **GitHub Actions** with these exact values:
+   - Organization or user: `grinry`
+   - Repository: `godot-mcp`
+   - Workflow filename: `release.yml` (without `.github/workflows/`)
+   - Environment name: leave blank
+   - Allowed actions: enable direct `npm publish`
+
+   The workflow uses OIDC on a GitHub-hosted runner, so no `NPM_TOKEN` secret or
+   token rotation is needed. It installs npm 11 (trusted publishing requires npm
+   11.5.1 or later) and grants `id-token: write` to request short-lived publishing
+   credentials. See [npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/).
+3. Under [Actions settings](https://github.com/grinry/godot-mcp/settings/actions),
+   enable **Allow GitHub Actions to create and approve pull requests**. If branch
+   protection requires checks on release PRs, ensure those checks can run on
+   bot-created PRs; GitHub's default `GITHUB_TOKEN` does not trigger other workflows.
+
+### Automated release flow
+
+On pushes to `main`, `.github/workflows/release.yml` installs dependencies and
+runs Changesets. Pending changesets create or update a release PR containing the
+version bump, `CHANGELOG.md`, and synchronized `package-lock.json`.
+
+Merge the release PR to build and publish the new version publicly to npm and
+create a GitHub release. The fork's first release was `0.1.2`, following the
+inherited `0.1.1` version. You can also run the workflow manually on `main` to
+retry a failed publication.
+
+For local inspection, `npm run version-packages` consumes changesets and updates
+versions and the lockfile. `npm run release` builds and publishes using your npm
+credentials; only run it when you intend to publish.
