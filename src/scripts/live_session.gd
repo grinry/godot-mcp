@@ -1,5 +1,6 @@
 # Temporary debug session; no addon installation, autoload override or socket listener.
 extends SceneTree
+const Codec = preload("variant_codec.gd")
 
 var directory = ""
 var token = ""
@@ -74,6 +75,8 @@ func reply(id, ok, error = "", extra = {}):
     response.merge(extra)
     if error != "":
         response.error = error
+    if JSON.stringify(response).to_utf8_buffer().size() > 60000:
+        response = {"id": id, "ok": false, "error": "Response exceeds 60 KiB; request fewer properties"}
     write_json(directory.path_join("response-" + id + ".json"), response)
     busy = false
 
@@ -95,6 +98,9 @@ func handle_request(id, operation, params):
             var max_nodes = int(params.get("maxNodes", 100))
             if max_depth < 0 or max_depth > 20 or max_nodes < 1 or max_nodes > 200:
                 reply(id, false, "Invalid runtime tree limits")
+                return
+            if not is_instance_valid(current_scene):
+                reply(id, false, "No current scene")
                 return
             var queue = [{"node": current_scene, "depth": 0}]
             var nodes = []
@@ -123,6 +129,53 @@ func handle_request(id, operation, params):
                     queue.append({"node": child, "depth": item.depth + 1})
             truncated = truncated or index < queue.size()
             reply(id, true, "", {"nodes": nodes, "truncated": truncated, "paused": paused})
+        "properties":
+            if not is_instance_valid(current_scene):
+                reply(id, false, "No current scene")
+                return
+            var path = params.get("nodePath", ".")
+            if path == "root":
+                path = "."
+            elif path.begins_with("root/"):
+                path = path.trim_prefix("root/")
+            var node = current_scene.get_node_or_null(NodePath(path))
+            if node == null:
+                reply(id, false, "Runtime node not found")
+                return
+            var limits = Codec.budget()
+            var values = {}
+            var available = {}
+            for info in node.get_property_list():
+                available[str(info.name)] = info
+            for key in params.get("properties", []):
+                if not available.has(key):
+                    reply(id, false, "Unknown property: " + str(key))
+                    return
+                values[key] = {"type": type_string(available[key].type), "value": Codec.encode(node.get(key), 0, limits)}
+            reply(id, true, "", {"nodePath": path, "properties": values, "paused": paused})
+        "step":
+            if not paused:
+                reply(id, false, "Pause the debug session before stepping")
+                return
+            var count = int(params.get("frames", 0))
+            var kind = params.get("kind", "physics")
+            if count < 1 or count > 120 or kind not in ["physics", "process"]:
+                reply(id, false, "Invalid frame step")
+                return
+            # Signals occur BEFORE node callbacks. Resume at one boundary, pause
+            # at the boundary after N completed frames, before further callbacks.
+            if kind == "physics":
+                await physics_frame
+            else:
+                await process_frame
+            paused = false
+            for index in count:
+                if kind == "physics":
+                    await physics_frame
+                else:
+                    await process_frame
+            paused = true
+            reply(id, true, "", {"frames": count, "kind": kind, "paused": true})
         "pause":
             if not params.get("paused") is bool:
                 reply(id, false, "paused must be boolean")

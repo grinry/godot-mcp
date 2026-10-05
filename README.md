@@ -369,11 +369,52 @@ Scene node paths use `root`, `.`, or a path beneath the root such as `root/Playe
 
 `update_project_uids` imports the project before resaving and returns scene/UID counters. One-shot engine operations have bounded output, a 60-second deadline (version queries use 10 seconds), request cancellation and shutdown cleanup. `launch_editor` observes the first 1.5 seconds for errors or early exit, returns its diagnostics and distinguishes process startup from project readiness. `view_log` retains later errors.
 
+## Project inspection and transactional editing
+
+| Tool | Behavior |
+|---|---|
+| `get_project_overview` | Reads main-scene settings, autoloads, input actions, enabled addons, custom GDScript declarations and text resource dependencies without starting Godot. `limit` defaults to 200 (maximum 500). Godot expressions are returned verbatim; binary resources and UID targets are marked incomplete or left unresolved. |
+| `get_scene_info` | Reads saved scene nodes, ownership, stored properties, attached script paths/export metadata, persistent connections, groups and dependencies without instantiating the scene. Includes base-scene and instance paths; does not flatten inherited/instanced content or infer unsaved editor changes. `maxNodes` defaults to 100 (maximum 500); `maxProperties` to 50 (maximum 200). |
+| `set_node_properties` | Sets a `properties` dictionary on an existing local `nodePath`. Supports `dryRun` and `expectedHash` just like `modify_scene`. |
+| `modify_scene` | Validates and applies 1–100 ordered `operations` to one scene, then saves once using an atomic replacement. A failed operation leaves the scene file untouched by the tool. |
+
+`modify_scene` operations are `set_properties` (`properties`), `rename_node` (`newName`), `reparent_node` (`parentNodePath`), `remove_node`, `connect_signal` / `disconnect_signal` (`signal`, `targetNodePath`, `method`), and `add_group` / `remove_group` (`group`). Every operation includes `nodePath`. Paths after a rename/reparent refer to the updated hierarchy. Reparenting preserves the transform; groups and signal connections persist after reload. Signal connections check declared argument counts/types and built-in or registered script inheritance; untyped signal arguments cannot be assigned to a typed method parameter without a compatible declaration.
+
+Preview first, then pass its `sourceHash` as `expectedHash` when applying:
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "scenePath": "res://player.tscn",
+  "dryRun": true,
+  "operations": [
+    {"op": "set_properties", "nodePath": ".", "properties": {"position": {"type": "Vector2", "value": [32, 64]}}},
+    {"op": "add_group", "nodePath": ".", "group": "players"}
+  ]
+}
+```
+
+`dryRun` validates and repacks without replacing the original file; it still executes constructors and setters. A fresh content check guards every save; `expectedHash` additionally rejects stale previews. Supported values are booleans, numbers, strings, null object references, numeric vectors/colors/quaternions, NodePaths and resource references (`{"type":"Resource","path":"res://icon.svg"}`). Vectors accept component arrays or explicit type tags; colors require four components. Use `attach_script` and `set_node_reference` for script and typed node assignments. Collections, transforms and other unsupported property types fail explicitly.
+
+Transactional edits refuse inherited scenes, nodes inside scene instances, scene-root structural edits, and changes to ownership or script properties. Rename/reparent update resolvable relative NodePaths; removal refuses surviving node references and persistent connections into the removed subtree. Structural edits refuse unresolved/absolute paths, embedded resources and references nested in collections rather than guessing their meaning. Script string literals and dynamically computed paths cannot be rewritten: validate and play-test after changing node paths. Instantiation, resource loading, autoloads, constructors and setters can execute project code; these tools are blocked by `GODOT_READ_ONLY` and do not sandbox those side effects.
+
+## Runtime inspection and frame stepping
+
+`get_node_properties` reads 1–50 explicitly named `properties` from a live `nodePath`, returning typed, bounded values and the current pause state. It executes getters and is blocked in read-only mode. Collections are limited to 100 entries and six nesting levels, with a shared traversal budget of 1000 values per response; unsupported values are labeled rather than converted to misleading strings. Requests whose encoded response exceeds 60 KiB fail with an actionable limit error.
+
+For gameplay checks, start a debug session, send input, pause it with `set_debug_pause`, record properties, call `step_frames` with `frames` (1–120) and `kind` (`physics`, default, or `process`), and inspect again or capture a screenshot. Stepping requires a paused session, resumes through the requested frame boundaries, and leaves it paused. Process stepping may advance physics too, and physics stepping may advance process frames. Nodes that ignore pause, wall-clock timers, asynchronous work and external systems continue to follow Godot's behavior; this is not a deterministic replay engine. Use the returned session handle on modern MCP clients.
+
+## Targeted validation and diagnostics
+
+`validate_project` accepts either `scripts` (1–1000 relative or `res://` GDScript paths) or a relative `pattern` glob. Omitting both checks all discovered GDScript files. An empty selection reports `nothingChecked` and fails rather than claiming success. C# validation remains outside this tool's scope.
+
+Validation, finite test/export runs and game debug output include `diagnostics` entries with `file`, `line`, `severity` and `message`, plus error/warning `counts`. Unknown locations are null; raw bounded output remains available. Warnings are reported separately and do not fail an otherwise successful run. New inspection/edit/runtime results also include MCP `structuredContent` alongside text for compatible clients.
+
 ## Protocol compatibility and sessions
 
 The official MCP v2 server supports `2026-07-28` over stdio, including discovery and per-request metadata, while retaining `2025-11-25` initialization compatibility. Server instructions guide the workflow and tool annotations identify read and mutation operations.
 
-For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
+For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree, property inspection, stepping and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
 
 ## Optional execution policy
 

@@ -13,7 +13,10 @@ The server uses MCP over stdio to launch Godot, run projects, collect debug outp
 
 ## Source map
 
-- `src/index.ts`: MCP server, tool schemas and dispatch, argument normalization, Godot detection, child-process management, and tool handlers.
+- `src/index.ts`: MCP server, argument normalization, Godot detection, and session/process orchestration.
+- `src/tool-registry.ts`: tool registration, discovery, dispatch, annotations, and session metadata.
+- `src/legacy-tools.ts` / `src/legacy-handlers.ts`: legacy tool schemas and handlers.
+- `src/scene-tools.ts`, `src/runtime-tools.ts`, `src/project-overview.ts`: scene transactions, live inspection/stepping, and project discovery.
 - `src/scripts/godot_operations.gd`: Godot-side scene and resource operations.
 - `scripts/build.js`: makes the compiled entry point executable and copies the GDScript into `build/scripts/`.
 - `README.md`: installation, client configuration, features, and troubleshooting.
@@ -62,7 +65,7 @@ The package declares Node.js >=22.14; the release workflow uses Node.js 24. Keep
 Run `npm test` for lifecycle and discovery regression coverage. Set `GODOT_TEST_PATH` to include real Godot integration tests `GODOT_TEST_RENDER=true` for display-dependent screenshots, `GODOT_TEST_EXPORT=true` for a Web export with installed templates, and `GUT_TEST_ADDON_PATH` for installed GUT integration. Biome and regression tests run in CI.
 
 - Run `npm run check` after changes to supported source/configuration files.
-- Biome uses recommended rules with two exceptions scoped to the legacy `src/index.ts`: explicit `any` and non-null assertions. Avoid introducing these patterns in new code.
+- Biome uses recommended rules with two exceptions scoped to the legacy `src/index.ts` and moved `src/legacy-handlers.ts`: explicit `any` and non-null assertions. Avoid introducing these patterns in new code.
 - Biome does not format GDScript, Markdown, or YAML; review those files separately.
 
 - Run `npm run build` after TypeScript, GDScript, dependency, or build changes.

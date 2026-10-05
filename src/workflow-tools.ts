@@ -1,73 +1,29 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { CallToolResult, JSONObject, Tool } from '@modelcontextprotocol/server';
-import { OperationRunner, processDiagnostics } from './operation-runner.js';
+import type { CallToolResult, JSONObject } from '@modelcontextprotocol/server';
+import { OperationRunner, processDiagnostics, processReport } from './operation-runner.js';
 import { listProjectFiles } from './project-files.js';
 import { projectDirectory, projectFile, projectRoot } from './project-paths.js';
+import type { ToolSpecification } from './tool-types.js';
 
 const project = { type: 'string', description: 'Godot project directory' };
 const scene = { type: 'string', description: 'Relative or res:// PackedScene path' };
 const timeout = { type: 'integer', minimum: 1, maximum: 600000 };
+
 const tool = (
   name: string,
   description: string,
   properties: JSONObject,
   required: string[],
-): Tool => ({
+): ToolSpecification => ({
+  access: name === 'list_project_files' ? 'read' : 'execute',
+  session: name === 'run_scene' ? 'start' : 'none',
   name,
   description,
   inputSchema: { type: 'object', properties, required },
 });
-export const extraTools: Tool[] = [
-  tool(
-    'get_runtime_tree',
-    'Inspect the live debug session scene tree without changing pause state. Returns bounded node paths, classes and script paths.',
-    {
-      maxDepth: { type: 'integer', minimum: 0, maximum: 20 },
-      maxNodes: { type: 'integer', minimum: 1, maximum: 200 },
-    },
-    [],
-  ),
-  tool(
-    'close_session',
-    'Stop and release an explicit process/debug session.',
-    { sessionId: { type: 'string' } },
-    ['sessionId'],
-  ),
-  tool(
-    'start_debug_session',
-    'Run a temporary live debug session. Does not install addons or change project settings. Replaces the current game run.',
-    { projectPath: project, scenePath: scene, headless: { type: 'boolean' } },
-    ['projectPath'],
-  ),
-  tool(
-    'capture_screenshot',
-    'Capture the current live debug session as an inline PNG, including when paused. Requires a display renderer.',
-    {},
-    [],
-  ),
-  tool(
-    'simulate_input',
-    'Send input events to the live debug session only. Send pressed:false to release a held key, action or button.',
-    {
-      kind: { type: 'string', enum: ['action', 'key', 'mouse_button', 'mouse_motion'] },
-      action: { type: 'string' },
-      pressed: { type: 'boolean' },
-      strength: { type: 'number', minimum: 0, maximum: 1 },
-      keycode: { type: 'integer', minimum: 1 },
-      button: { type: 'integer', minimum: 1, maximum: 9 },
-      x: { type: 'number' },
-      y: { type: 'number' },
-    },
-    ['kind'],
-  ),
-  tool(
-    'set_debug_pause',
-    'Pause or resume the live debug session. Captures do not change pause state.',
-    { paused: { type: 'boolean' } },
-    ['paused'],
-  ),
+export const extraTools: ToolSpecification[] = [
   tool(
     'run_gut_tests',
     'Run installed GUT tests with bounded output, timeout and cancellation. Choose exactly one testFile or directory.',
@@ -102,8 +58,16 @@ export const extraTools: Tool[] = [
   ),
   tool(
     'validate_project',
-    'Check project GDScript files using Godot --check-only. Does not validate C# or gameplay.',
-    { projectPath: project, timeoutMs: timeout },
+    'Check all or selected GDScript files using Godot --check-only. Choose scripts or pattern for targeted validation. Does not validate C# or gameplay.',
+    {
+      projectPath: project,
+      timeoutMs: timeout,
+      scripts: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 1000 },
+      pattern: {
+        type: 'string',
+        description: 'Relative script glob; mutually exclusive with scripts',
+      },
+    },
     ['projectPath'],
   ),
   tool(
@@ -135,22 +99,14 @@ export const extraTools: Tool[] = [
     },
     ['projectPath', 'scenePath'],
   ),
-  tool(
-    'view_log',
-    'Read bounded logs of the most recently launched editor, including after exit.',
-    { lineCount: { type: 'integer', minimum: 1, maximum: 10000 } },
-    [],
-  ),
-  tool(
-    'quit_godot',
-    'Terminate the editor launched by this server and wait for exit. Unsaved editor changes may be lost.',
-    {},
-    [],
-  ),
 ];
 
 function text(value: unknown, isError = false): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }], isError };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    structuredContent: value,
+    isError,
+  };
 }
 function time(value: unknown, fallback = 60000) {
   const result = value ?? fallback;
@@ -183,27 +139,63 @@ export async function handleExtraTool(
       child.exitCode === 0 &&
       !child.timedOut &&
       !child.truncated &&
-      errors.length === 0 &&
+      !errors.some((item) => item.severity === 'error') &&
       !nothingRun;
-    return text({ passed, nothingRun, ...child.snapshot(), diagnostics: errors }, !passed);
+    return text({ passed, nothingRun, ...processReport(child) }, !passed);
   }
   if (name === 'validate_project') {
-    const files = await listProjectFiles(root, { type: 'script', limit: 1000, signal });
-    if (files.truncated) throw new Error('Too many scripts: validation would be incomplete');
+    if (args.scripts !== undefined && args.pattern !== undefined)
+      throw new Error('Choose scripts or pattern, not both');
+    let paths: string[];
+    if (args.scripts !== undefined) {
+      if (!Array.isArray(args.scripts) || !args.scripts.length || args.scripts.length > 1000)
+        throw new Error('scripts must contain 1 to 1000 paths');
+      paths = [
+        ...new Set(
+          await Promise.all(
+            args.scripts.map(
+              async (path) => (await projectFile(root, path, ['.gd', '.gdscript'])).resource,
+            ),
+          ),
+        ),
+      ];
+    } else {
+      if (args.pattern !== undefined && (typeof args.pattern !== 'string' || !args.pattern))
+        throw new Error('pattern must be a nonempty glob');
+      const files = await listProjectFiles(root, {
+        type: 'script',
+        limit: 1000,
+        pattern: args.pattern as string | undefined,
+        signal,
+      });
+      if (files.truncated) throw new Error('Too many scripts: validation would be incomplete');
+      paths = files.scripts
+        .filter((file) => file.endsWith('.gd') || file.endsWith('.gdscript'))
+        .map((file) => `res://${file}`);
+    }
+    if (!paths.length)
+      return text(
+        {
+          valid: false,
+          nothingChecked: true,
+          results: [],
+          diagnostics: [],
+          counts: { errors: 0, warnings: 0 },
+        },
+        true,
+      );
     const results = [];
     let resultBytes = 0;
     const deadline = Date.now() + timeoutMs;
-    for (const path of files.scripts.filter(
-      (file) => file.endsWith('.gd') || file.endsWith('.gdscript'),
-    )) {
+    for (const path of paths) {
       if (Date.now() >= deadline) return text({ valid: false, timedOut: true, results }, true);
       const child = await runner.run(
         godot,
-        ['--headless', '--path', root, '--check-only', '--script', `res://${path}`],
+        ['--headless', '--path', root, '--check-only', '--script', path],
         Math.max(1, deadline - Date.now()),
         signal,
       );
-      const result = { path, ...child.snapshot(), diagnostics: processDiagnostics(child) };
+      const result = { path, ...processReport(child) };
       resultBytes += Buffer.byteLength(JSON.stringify(result));
       if (resultBytes > 2 * 1024 * 1024)
         return text({ valid: false, truncated: true, results, uncheckedScript: path }, true);
@@ -215,9 +207,17 @@ export async function handleExtraTool(
         result.exitCode === 0 &&
         !result.timedOut &&
         !result.truncated &&
-        result.diagnostics.length === 0,
+        result.counts.errors === 0,
     );
-    return text({ valid, results }, !valid);
+    const diagnostics = results.flatMap((item) => item.diagnostics);
+    const counts = results.reduce(
+      (sum, item) => ({
+        errors: sum.errors + item.counts.errors,
+        warnings: sum.warnings + item.counts.warnings,
+      }),
+      { errors: 0, warnings: 0 },
+    );
+    return text({ valid, checked: results.length, results, diagnostics, counts }, !valid);
   }
   if (name === 'export_project') {
     if (typeof args.preset !== 'string' || !args.preset || args.preset.startsWith('-'))
@@ -248,9 +248,9 @@ export async function handleExtraTool(
       child.exitCode === 0 &&
       !child.timedOut &&
       !child.truncated &&
-      errors.length === 0 &&
+      !errors.some((item) => item.severity === 'error') &&
       (await stat(outputPath).catch(() => null))?.isFile() === true;
-    return text({ success, outputPath, ...child.snapshot(), diagnostics: errors }, !success);
+    return text({ success, outputPath, ...processReport(child) }, !success);
   }
   const resource = await projectFile(root, args.scenePath, ['.tscn', '.scn']);
   if (name === 'run_scene_test') {
@@ -262,8 +262,11 @@ export async function handleExtraTool(
     );
     const errors = processDiagnostics(child);
     const passed =
-      child.exitCode === 0 && !child.timedOut && !child.truncated && errors.length === 0;
-    return text({ passed, ...child.snapshot(), diagnostics: errors }, !passed);
+      child.exitCode === 0 &&
+      !child.timedOut &&
+      !child.truncated &&
+      !errors.some((item) => item.severity === 'error');
+    return text({ passed, ...processReport(child) }, !passed);
   }
   if (name === 'capture_scene_screenshot') {
     const frames = args.frames ?? 3;
