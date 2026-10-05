@@ -1,0 +1,33 @@
+{
+  "manifest_version": "0.3",
+  "name": "godot-mcp-grinry",
+  "display_name": "Godot MCP by grinry",
+  "version": "0.0.0",
+  "description": "Launch Godot, edit scenes, validate scripts, run tests and capture screenshots.",
+  "author": { "name": "grinry", "url": "https://github.com/grinry" },
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/grinry/godot-mcp" },
+  "homepage": "https://github.com/grinry/godot-mcp",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": { "GODOT_PATH": "${user_config.godot_path}" }
+    }
+  },
+  "user_config": {
+    "godot_path": {
+      "type": "file",
+      "title": "Godot executable",
+      "description": "Godot 4 executable path. Leave blank to use auto-detection.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "node": ">=22.14.0" }
+  },
+  "keywords": ["godot", "game-engine", "game-development"]
+}

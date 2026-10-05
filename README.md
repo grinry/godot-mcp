@@ -1,6 +1,6 @@
 > This project is a fork of [Coding-Solo/godot-mcp](https://github.com/Coding-Solo/godot-mcp), originally created by Solomon Elias.
 
-# Godot MCP by grinry
+# Godot MCP
 
 [![](https://badge.mcpx.dev?type=server 'MCP Server')](https://modelcontextprotocol.io/introduction)
 [![Made with Godot](https://img.shields.io/badge/Made%20with-Godot-478CBF?style=flat&logo=godot%20engine&logoColor=white)](https://godotengine.org)
@@ -83,7 +83,7 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 ## Requirements
 
 - [Godot Engine](https://godotengine.org/download) installed on your system
-- Node.js (>=18.0.0) and npm
+- Node.js (>=22.14.0) and npm
 - An AI agent that supports MCP
 
 ## Quick Start
@@ -129,6 +129,14 @@ With environment variables:
 ```bash
 claude mcp add godot -e GODOT_PATH=/path/to/godot -e DEBUG=true -- npx @grinry/godot-mcp
 ```
+
+### Autohand Code
+
+```bash
+autohand mcp add godot npx @grinry/godot-mcp
+```
+
+For a project-scoped registration, use `autohand mcp add --scope project godot npx @grinry/godot-mcp`. On macOS/Linux, a custom executable can be passed with `autohand mcp add godot env GODOT_PATH=/path/to/godot npx @grinry/godot-mcp`. See [Autohand Code](https://github.com/autohandai/code-cli) for platform-specific environment configuration.
 
 <details>
 <summary><strong>Cline</strong></summary>
@@ -278,3 +286,71 @@ Releases use Changesets to manage versions and changelogs, then GitHub Actions t
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Validation and feedback tools
+
+Requires Node.js **22.14 or newer** and Godot 4. The MCP SDK has been upgraded and the unused Axios dependency removed.
+
+| Tool | Behavior |
+|---|---|
+| `list_project_files` | Lists scenes, scripts and resources. Accepts `type`, a relative glob `pattern`, and `limit` (default 1,000, maximum 10,000). Skips hidden files and symlinks; reports `truncated` when a traversal/result limit is reached. |
+| `run_scene` | Runs `scenePath` (relative or `res://`) and stops after `timeoutMs` (default 30,000, maximum 600,000). Optional `headless`. |
+| `validate_project` | Checks discovered GDScript files with Godot `--check-only`, retaining every diagnostic. Default total timeout: 60 seconds. C# and gameplay are outside this check. |
+| `run_scene_test` | Runs a headless scene and returns `passed`, exit code, timeout status, output and diagnostics. A test scene must call `get_tree().quit(0)` for success or a nonzero code for failure. Default timeout: 60 seconds. |
+| `export_project` | Uses an existing `preset` from `export_presets.cfg`, writing `outputPath`. Requires matching Godot export templates. Optional `debug` and `timeoutMs`. |
+| `capture_scene_screenshot` | Runs a fresh `scenePath`, waits `frames` (default 3), and returns an inline PNG. Requires a display renderer; output uses a private temporary directory that is removed afterward. Default timeout: 30 seconds. |
+| `view_log` | Reads the latest launched editor's output and errors; `lineCount` defaults to 200. |
+| `quit_godot` | Terminates the editor launched by this server and waits for exit. Save editor changes first: unsaved changes may be lost. |
+
+`run_project` also accepts `headless` and `timeoutMs`. Game and editor launches each replace the preceding process of the same kind. `get_debug_output` retains the most recent game's final logs after exit or timeout. Logs are bounded to 1 MiB per process and 10,000 lines per stream; truncation is reported. Scene paths reject traversal and symlinks that escape the project.
+
+`add_node` converts JSON numeric arrays to Vector2/3/4, their integer variants, Quaternion and Color properties. Colors accept three or four components; other vectors require the exact component count. Invalid properties fail before saving the scene. Integral JSON numbers are accepted for integer properties.
+
+### Imported textures
+
+Before `load_sprite`, open the project in Godot or run `godot --headless --editor --path /path/to/project --import`. Godot must generate import metadata for the texture; copying a PNG alone is insufficient. Use its project resource path (for example, `res://textures/player.png`).
+
+### Verification
+
+Run `npm test` for process lifecycle and discovery regression tests. Set `GODOT_TEST_PATH` to a Godot 4 executable to include the real-engine MCP and scene-editing integration test:
+
+```bash
+GODOT_TEST_PATH=/path/to/godot npm test
+```
+
+## Live visual feedback and input
+
+Call `start_debug_session` with `projectPath` and optional `scenePath` to run a game with the temporary debug bridge. If no scene is supplied, the configured main scene is used. `capture_screenshot` returns a PNG of that running game's current state; `capture_scene_screenshot` starts a separate fresh scene.
+
+The bridge uses a private temporary directory with authenticated requests, bounded messages and unique response IDs. It installs no addon, changes no autoload settings, and opens no network port. It runs only in the game process explicitly launched by `start_debug_session`; exported games do not include it. Godot may still generate its normal `.godot` import cache.
+
+Use `simulate_input` with one of the argument objects below (one event per call):
+
+```json
+[
+  { "kind": "action", "action": "ui_accept", "pressed": true },
+  { "kind": "key", "keycode": 32, "pressed": true },
+  { "kind": "mouse_button", "button": 1, "x": 120, "y": 80, "pressed": true },
+  { "kind": "mouse_motion", "x": 120, "y": 80 }
+]
+```
+
+Send `pressed: false` to release a held input. Actions must exist in the project's InputMap. Events use [Godot's input event dispatch](https://docs.godotengine.org/en/4.4/classes/class_input.html#class-input-method-parse-input-event), so scene input callbacks can observe them. `set_debug_pause` accepts `paused: true` or `false`; screenshots preserve that state. A headless session supports input and logs but cannot render screenshots. `stop_project`, another game launch, or server shutdown stops the session and removes temporary bridge files. Request cancellation/timeouts also stop the affected live session.
+
+## GUT tests
+
+Install [GUT](https://github.com/bitwes/Gut) in `addons/gut`, then import the project once in Godot. `run_gut_tests` accepts `projectPath` and exactly one `testFile` or `directory` (relative or `res://`). Optional arguments: `headless` (default true), `includeSubdirs` (default true), `logLevel` (0–3), and `timeoutMs` (default 60,000; maximum 600,000). It reports exit status, diagnostics, truncation and timeout, and rejects a run with no tests. It follows the [GUT command-line runner](https://gut.readthedocs.io/en/9.3.1/Command-Line.html); integration has been verified with GUT 9.6.1.
+
+## Desktop bundle and Codex plugin
+
+`npm run build:mcpb` creates `dist/godot-mcp-VERSION.mcpb`. It rebuilds the source, bundles runtime dependencies, copies all Godot scripts, validates the manifest, and verifies that the bundled server exposes the same MCP tools. Import the bundle into a desktop client supporting MCPB and configure its Godot executable path. Node.js >=22.14 and Godot must be available on the client machine. CI verifies the bundle; successful npm releases attach it to the matching GitHub release. Desktop installation itself has not been automated.
+
+The repository also includes `.codex-plugin/plugin.json` and `.codex-plugin/mcp.json` for local/repository plugin distribution using the [supported Codex compatibility layout](https://developers.openai.com/plugins/build/plugins). Its launcher uses the published `@grinry/godot-mcp` package. Changesets updates the plugin version when preparing a release. The Codex CLI configuration above remains available for direct MCP registration.
+
+To exercise the display and GUT integrations locally:
+
+```bash
+GODOT_TEST_PATH=/path/to/godot GODOT_TEST_RENDER=true GODOT_TEST_EXPORT=true GUT_TEST_ADDON_PATH=/path/to/addons/gut npm test
+```
+
+`update_project_uids` performs a headless editor import before resaving resources, so Godot creates script/shader `.uid` files in editor mode. It verifies missing UID files rather than reporting a save as successful generation.

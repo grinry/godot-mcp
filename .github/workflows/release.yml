@@ -43,7 +43,11 @@ jobs:
       - name: Check formatting and lint
         run: npm run check
 
+      - name: Run regression tests
+        run: npm test
+
       - name: Create release pull request or publish to npm
+        id: changesets
         uses: changesets/action@v1
         with:
           version: npm run version-packages
@@ -52,3 +56,15 @@ jobs:
           commit: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build desktop bundle
+        if: steps.changesets.outputs.published == 'true'
+        run: npm run build:mcpb
+
+      - name: Attach desktop bundle to package release
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          package_version=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          gh release upload "v$package_version" "dist/godot-mcp-$package_version.mcpb" --clobber

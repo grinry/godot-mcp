@@ -1,0 +1,129 @@
+# Temporary debug session; no addon installation, autoload override or socket listener.
+extends SceneTree
+
+var directory = ""
+var token = ""
+var busy = false
+
+func _initialize():
+    call_deferred("start_session")
+
+func write_json(path, data):
+    var file = FileAccess.open(path + ".tmp", FileAccess.WRITE)
+    if file == null:
+        quit(1)
+        return
+    file.store_string(JSON.stringify(data))
+    file.close()
+    if DirAccess.rename_absolute(path + ".tmp", path) != OK:
+        quit(1)
+
+func start_session():
+    var args = OS.get_cmdline_user_args()
+    if args.size() != 1:
+        quit(1)
+        return
+    directory = args[0].get_base_dir()
+    var config = JSON.parse_string(FileAccess.get_file_as_string(args[0]))
+    if not config is Dictionary or not config.get("token") is String:
+        quit(1)
+        return
+    token = config.token
+    var scene_path = config.get("scene", "")
+    if scene_path == "":
+        scene_path = ProjectSettings.get_setting("application/run/main_scene", "")
+    var packed = load(scene_path) if scene_path != "" else null
+    if not packed is PackedScene:
+        write_json(directory.path_join("ready.json"), {"ok": false, "error": "Configure a main scene or supply scenePath"})
+        return
+    var scene = packed.instantiate()
+    root.add_child(scene)
+    current_scene = scene
+    process_frame.connect(poll_request)
+    write_json(directory.path_join("ready.json"), {"ok": true, "scene": scene_path})
+
+func poll_request():
+    if busy:
+        return
+    var path = directory.path_join("request.json")
+    if not FileAccess.file_exists(path):
+        return
+    var file = FileAccess.open(path, FileAccess.READ)
+    if file == null:
+        return
+    if file.get_length() > 65536:
+        file.close()
+        DirAccess.remove_absolute(path)
+        return
+    var request = JSON.parse_string(file.get_as_text())
+    file.close()
+    DirAccess.remove_absolute(path)
+    if not request is Dictionary or request.get("token") != token:
+        return
+    var id = request.get("id", "")
+    if not id is String or id.length() != 36 or id.validate_filename() != id:
+        return
+    var params = request.get("params", {})
+    if not params is Dictionary:
+        return
+    busy = true
+    handle_request(id, request.get("operation", ""), params)
+
+func reply(id, ok, error = "", extra = {}):
+    var response = {"id": id, "ok": ok}
+    response.merge(extra)
+    if error != "":
+        response.error = error
+    write_json(directory.path_join("response-" + id + ".json"), response)
+    busy = false
+
+func handle_request(id, operation, params):
+    match operation:
+        "screenshot":
+            if DisplayServer.get_name() == "headless":
+                reply(id, false, "A display renderer is required for screenshots")
+                return
+            await RenderingServer.frame_post_draw
+            var image = root.get_texture().get_image()
+            if image == null or image.is_empty():
+                reply(id, false, "Viewport produced no image")
+                return
+            var error = image.save_png(directory.path_join("capture-" + id + ".png"))
+            reply(id, error == OK, "" if error == OK else "Failed to save screenshot", {"width": image.get_width(), "height": image.get_height(), "paused": paused})
+        "pause":
+            if not params.get("paused") is bool:
+                reply(id, false, "paused must be boolean")
+                return
+            paused = params.paused
+            reply(id, true, "", {"paused": paused})
+        "input":
+            var event = null
+            match params.get("kind", ""):
+                "action":
+                    if not params.get("action") is String or not InputMap.has_action(params.action):
+                        reply(id, false, "Unknown input action")
+                        return
+                    event = InputEventAction.new()
+                    event.action = params.action
+                    event.pressed = params.get("pressed", true)
+                    event.strength = params.get("strength", 1.0)
+                "key":
+                    event = InputEventKey.new()
+                    event.keycode = int(params.get("keycode", 0))
+                    event.pressed = params.get("pressed", true)
+                "mouse_button":
+                    event = InputEventMouseButton.new()
+                    event.button_index = int(params.get("button", 1))
+                    event.position = Vector2(params.get("x", 0), params.get("y", 0))
+                    event.pressed = params.get("pressed", true)
+                "mouse_motion":
+                    event = InputEventMouseMotion.new()
+                    event.position = Vector2(params.get("x", 0), params.get("y", 0))
+                    event.relative = event.position - root.get_mouse_position()
+                _:
+                    reply(id, false, "Unknown input kind")
+                    return
+            Input.parse_input_event(event)
+            reply(id, true)
+        _:
+            reply(id, false, "Unknown debug operation")

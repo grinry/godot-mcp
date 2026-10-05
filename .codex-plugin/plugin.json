@@ -1,0 +1,18 @@
+{
+  "name": "godot-mcp-grinry",
+  "version": "0.1.2",
+  "description": "Control Godot projects, edit scenes, run tests and capture screenshots through MCP.",
+  "author": { "name": "grinry", "url": "https://github.com/grinry" },
+  "homepage": "https://github.com/grinry/godot-mcp",
+  "repository": "https://github.com/grinry/godot-mcp",
+  "license": "MIT",
+  "keywords": ["godot", "mcp", "game-development"],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "Godot MCP by grinry",
+    "shortDescription": "Godot scene editing, testing and visual feedback",
+    "longDescription": "Launch Godot, edit scenes, validate scripts, run tests and capture screenshots.",
+    "category": "Game Development",
+    "websiteURL": "https://github.com/grinry/godot-mcp"
+  }
+}
