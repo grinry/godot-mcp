@@ -73,6 +73,7 @@ Run `npm test` for lifecycle and discovery regression coverage. Set `GODOT_TEST_
 
 ## Releases
 
+- Keep changeset summaries short: one or two sentences describing user-facing changes. Omit implementation details, test lists, and issue/PR inventories.
 - Add a changeset with `npm run changeset` for releasable changes, selecting `@grinry/godot-mcp` and the appropriate version bump. Documentation-only  changes (or changes that does not touch ./src or ./scripts) need no changeset unless intended for publication.
 - Let Changesets manage versions and changelogs. `npm run version-packages` consumes changesets and synchronizes the lockfile; do not run it during routine implementation unless preparing a release.
 - Pushes to `main` create/update a release PR when changesets are pending. Merging that PR publishes the new version publicly and creates a GitHub release.
