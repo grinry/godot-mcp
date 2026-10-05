@@ -90,6 +90,39 @@ func handle_request(id, operation, params):
                 return
             var error = image.save_png(directory.path_join("capture-" + id + ".png"))
             reply(id, error == OK, "" if error == OK else "Failed to save screenshot", {"width": image.get_width(), "height": image.get_height(), "paused": paused})
+        "tree":
+            var max_depth = int(params.get("maxDepth", 10))
+            var max_nodes = int(params.get("maxNodes", 100))
+            if max_depth < 0 or max_depth > 20 or max_nodes < 1 or max_nodes > 200:
+                reply(id, false, "Invalid runtime tree limits")
+                return
+            var queue = [{"node": current_scene, "depth": 0}]
+            var nodes = []
+            var truncated = false
+            var index = 0
+            var bytes = 0
+            while index < queue.size() and nodes.size() < max_nodes:
+                var item = queue[index]
+                index += 1
+                var node = item.node
+                var script = node.get_script()
+                var entry = {"path": str(current_scene.get_path_to(node)).left(1024), "class": node.get_class(), "scriptPath": script.resource_path.left(1024) if script != null else "", "depth": item.depth}
+                bytes += JSON.stringify(entry).to_utf8_buffer().size()
+                if bytes > 50000:
+                    truncated = true
+                    break
+                nodes.append(entry)
+                var children = node.get_children()
+                if item.depth >= max_depth:
+                    truncated = truncated or not children.is_empty()
+                    continue
+                for child in children:
+                    if queue.size() >= max_nodes:
+                        truncated = true
+                        break
+                    queue.append({"node": child, "depth": item.depth + 1})
+            truncated = truncated or index < queue.size()
+            reply(id, true, "", {"nodes": nodes, "truncated": truncated, "paused": paused})
         "pause":
             if not params.get("paused") is bool:
                 reply(id, false, "paused must be boolean")

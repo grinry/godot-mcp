@@ -21,7 +21,9 @@ test('output is capped for newline-free floods', async () => {
   assert.equal(child.truncated, true);
   assert.equal(child.output.join('').length, 1024 * 1024);
 });
-test('shutdown escalates for a child ignoring SIGTERM', async () => {
+test('shutdown escalates for a child ignoring SIGTERM', {
+  skip: process.platform === 'win32',
+}, async () => {
   const child = await GodotProcess.start(process.execPath, [fixture, 'stubborn']);
   try {
     for (let index = 0; index < 100 && !child.output.includes('ready'); index++) await delay(10);
@@ -54,4 +56,74 @@ test('timeout closes a child and retains status', async () => {
   await child.done;
   assert.equal(child.timedOut, true);
   assert.equal(child.running, false);
+});
+
+test('native argument arrays preserve spaces, quotes, unicode and JSON without shell interpretation', async () => {
+  const args = [
+    'project folder/scene.tscn',
+    JSON.stringify({ name: 'Player "quoted"', position: [1, 2], text: 'Žaidimas $HOME `command`' }),
+  ];
+  const child = await GodotProcess.start(process.execPath, [fixture, 'argv', ...args]);
+  await child.done;
+  assert.equal(child.exitCode, 0);
+  assert.deepEqual(JSON.parse(child.output[0]), args);
+});
+
+test('stopping a run terminates descendants in its owned process tree', async () => {
+  const child = await GodotProcess.start(process.execPath, [fixture, 'nested']);
+  try {
+    for (let index = 0; index < 100 && !child.output.length; index++) await delay(10);
+    const pid = Number(child.output[0]?.replace('child:', ''));
+    assert.ok(pid > 0);
+    await child.stop();
+    for (let index = 0; index < 100; index++) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        assert.equal(error.code, 'ESRCH');
+        return;
+      }
+      await delay(20);
+    }
+    assert.fail('Descendant survived process cleanup');
+  } finally {
+    await child.stop();
+  }
+});
+
+test('cleanup escalates for descendants after root exit and with detached pipes', {
+  skip: process.platform === 'win32',
+}, async () => {
+  for (const mode of ['orphan', 'nested-resistant']) {
+    const child = await GodotProcess.start(process.execPath, [fixture, mode]);
+    let pid;
+    try {
+      for (let index = 0; index < 100 && !child.output.length; index++) await delay(10);
+      pid = Number(child.output[0]?.replace('child:', ''));
+      assert.ok(pid > 0);
+      if (mode === 'orphan') await child.done;
+      process.kill(pid, 0);
+      await child.stop();
+      assert.equal(child.running, false);
+      let reaped = false;
+      for (let index = 0; index < 100; index++) {
+        try {
+          process.kill(pid, 0);
+        } catch (error) {
+          assert.equal(error.code, 'ESRCH');
+          reaped = true;
+          break;
+        }
+        await delay(20);
+      }
+      assert.ok(reaped, 'Descendant survived process cleanup');
+    } finally {
+      await child.stop();
+      if (pid) {
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {}
+      }
+    }
+  }
 });

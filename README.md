@@ -354,3 +354,53 @@ GODOT_TEST_PATH=/path/to/godot GODOT_TEST_RENDER=true GODOT_TEST_EXPORT=true GUT
 ```
 
 `update_project_uids` performs a headless editor import before resaving resources, so Godot creates script/shader `.uid` files in editor mode. It verifies missing UID files rather than reporting a save as successful generation.
+
+## Scene authoring and reflection
+
+| Tool | Behavior |
+|---|---|
+| `attach_script` | Attaches `scriptPath` (`.gd` or `.cs`, relative or `res://`) to `nodePath` in `scenePath`. Checks the script's native base type and loadability before saving. |
+| `set_node_reference` | Sets an exported `property` on `nodePath` to `targetNodePath` in the same scene. Supports typed Node references and NodePath properties; rejects incompatible targets. |
+| `set_main_scene` | Sets `application/run/main_scene` to `scenePath`, preserving other settings and comments. |
+| `get_class_info` | Reflects a built-in `className` from the installed Godot version. Optional `section`: `properties` (default), `methods`, `signals`, or `enums`; `filter`, `includeInherited` (default true), and `limit` (default 100, maximum 500). Does not provide prose documentation. |
+| `get_runtime_tree` | Reads the live debug session's scene nodes, classes and script paths. `maxDepth` defaults to 10 (maximum 20), `maxNodes` to 100 (maximum 200). Reports truncation and preserves pause state. |
+
+Scene node paths use `root`, `.`, or a path beneath the root such as `root/Player`. Scene editing runs project constructors: use trusted projects. Mutating scene tools preflight script dependencies and verify that repacking preserves existing scripts. Unavailable scripts fail before scene saving. C# operations require a Godot **.NET executable and a built, loadable assembly**; a standard executable refuses C# edits instead of dropping attachments. GDScript attachment and safe rejection/preservation with standard Godot have integration coverage; positive .NET attachment still needs verification with a .NET installation.
+
+`update_project_uids` imports the project before resaving and returns scene/UID counters. One-shot engine operations have bounded output, a 60-second deadline (version queries use 10 seconds), request cancellation and shutdown cleanup. `launch_editor` observes the first 1.5 seconds for errors or early exit, returns its diagnostics and distinguishes process startup from project readiness. `view_log` retains later errors.
+
+## Protocol compatibility and sessions
+
+The official MCP v2 server supports `2026-07-28` over stdio, including discovery and per-request metadata, while retaining `2025-11-25` initialization compatibility. Server instructions guide the workflow and tool annotations identify read and mutation operations.
+
+For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
+
+## Optional execution policy
+
+Set `GODOT_ALLOWED_ROOTS` to permitted project/search directories, separated by the platform path-list delimiter (`:` on macOS/Linux, `;` on Windows). Canonical paths are checked, including symlinks. With no value, project selection remains unrestricted.
+
+Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries and process cleanup while rejecting resource writes and project execution, including tests and screenshots that start scenes. Existing runtime inspection is allowed. These controls restrict MCP requests; they are not an OS sandbox for project scripts. Hosts should retain their tool-approval controls.
+
+### Windows and WSL
+
+Use an executable file in `GODOT_PATH`, not its containing directory. The server passes JSON and paths as native argument arrays, including spaces and quotes. CI runs portable regression checks on Windows, macOS and Linux with Node 22.14 and 24; platform coverage does not imply all engine/render/.NET combinations are verified.
+
+In WSL, use a Linux Godot binary and Linux project paths. Alternatively run both this server and Godot natively on Windows with Windows paths. Directly combining WSL project paths with a Windows `.exe` is rejected with an actionable error; binary-aware cross-environment path translation is not supported.
+
+### Google Antigravity
+
+Following [Google's MCP configuration guide](https://antigravity.google/docs/mcp), open **MCP Servers → Manage MCP Servers → View raw config** in the IDE, or use the CLI's `/mcp` manager. Add the server to `mcpServers` in your global `~/.gemini/config/mcp_config.json` or workspace `.agents/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "godot": {
+      "command": "npx",
+      "args": ["-y", "@grinry/godot-mcp"],
+      "env": { "GODOT_PATH": "/absolute/path/to/godot" }
+    }
+  }
+}
+```
+
+Refresh the server configuration. This is a local stdio server; it does not require an editor addon or OAuth.

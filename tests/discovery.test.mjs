@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { projectFile, projectRoot } from '../build/project-paths.js';
 
 test('discovery filters, caps results, skips symlinks and detects escaping paths', async () => {
   const root = await mkdtemp(join(tmpdir(), 'godot-discovery-'));
+  const outside = await mkdtemp(join(tmpdir(), 'godot-discovery-outside-'));
   try {
     await mkdir(join(root, 'scenes'));
     await mkdir(join(root, '.godot'));
@@ -19,7 +20,11 @@ test('discovery filters, caps results, skips symlinks and detects escaping paths
       '.godot/hidden.gd',
     ])
       await writeFile(join(root, file), '');
-    await symlink(join(root, 'scenes'), join(root, 'linked'));
+    await symlink(
+      join(root, 'scenes'),
+      join(root, 'linked'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
     const all = await listProjectFiles(root);
     assert.equal(all.total, 3);
     assert.deepEqual(all.resources, ['include.gdshaderinc']);
@@ -30,17 +35,23 @@ test('discovery filters, caps results, skips symlinks and detects escaping paths
     await assert.rejects(listProjectFiles(root, { pattern: '../*' }));
     await assert.rejects(listProjectFiles(root, { type: 'bad' }));
     await assert.rejects(listProjectFiles(root, { limit: NaN }));
-    assert.equal(await projectRoot(root), root.replace(/^\/var\//, '/private/var/'));
+    assert.equal(await projectRoot(root), await realpath(root));
     assert.match(
       (await projectFile(await projectRoot(root), 'res://scenes/a.tscn')).resource,
       /^res:\/\//,
     );
     await assert.rejects(projectFile(root, 'scenes/../main.gd'));
-    await symlink('/etc/hosts', join(root, 'outside.gd'));
-    await assert.rejects(projectFile(root, 'outside.gd'), /escapes/);
+    await writeFile(join(outside, 'outside.gd'), '');
+    await symlink(
+      outside,
+      join(root, 'outside'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    await assert.rejects(projectFile(root, 'outside/outside.gd'), /escapes/);
     const aborted = AbortSignal.abort();
     await assert.rejects(listProjectFiles(root, { signal: aborted }));
   } finally {
     await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });

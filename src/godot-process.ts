@@ -1,5 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export class GodotProcess {
   readonly output: string[] = [];
@@ -12,10 +13,14 @@ export class GodotProcess {
   private child: ChildProcess;
   private timer?: NodeJS.Timeout;
   private bytes = 0;
+  private stopping?: Promise<void>;
   truncated = false;
 
   private constructor(command: string, args: string[]) {
-    this.child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    this.child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
     const attach = (stream: NodeJS.ReadableStream | null, lines: string[]) => {
       const decoder = new StringDecoder('utf8');
       let pending = '';
@@ -47,6 +52,9 @@ export class GodotProcess {
         this.signal = signal;
         clearTimeout(this.timer);
         resolve();
+        // Clean residual descendants immediately, before the retained PID could be reused.
+        if (process.platform !== 'win32')
+          void this.stop().catch((error: unknown) => this.errors.push(String(error)));
       });
     });
     // Prevent an unhandled error; start() also rejects with the same error.
@@ -70,25 +78,68 @@ export class GodotProcess {
     return instance;
   }
 
-  async stop() {
-    if (!this.running) return;
-    clearTimeout(this.timer);
-    this.child.kill('SIGTERM');
-    const finishedWithin = async (ms: number) => {
-      let timer: NodeJS.Timeout | undefined;
-      try {
-        return await Promise.race([
-          this.done.then(() => true),
-          new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), ms);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+  private sendSignal(signal: NodeJS.Signals) {
+    try {
+      if (process.platform !== 'win32' && this.child.pid) process.kill(-this.child.pid, signal);
+      else this.child.kill(signal);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error) {
+        if (error.code === 'ESRCH') return;
+        // macOS can reject a group signal while the child is still starting or exiting.
+        if (error.code === 'EPERM') {
+          this.child.kill(signal);
+          return;
+        }
       }
+      throw error;
+    }
+  }
+
+  stop(): Promise<void> {
+    this.stopping ??= this.stopOwnedProcess();
+    return this.stopping;
+  }
+
+  private groupRunning() {
+    if (process.platform === 'win32' || !this.child.pid) return this.running;
+    try {
+      process.kill(-this.child.pid, 0);
+      return true;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error) {
+        if (error.code === 'ESRCH') return false;
+        if (error.code === 'EPERM') return this.running;
+      }
+      throw error;
+    }
+  }
+
+  private async stopOwnedProcess() {
+    if (!this.running && !this.groupRunning()) return;
+    clearTimeout(this.timer);
+    if (process.platform === 'win32' && this.child.pid) {
+      await new Promise<void>((resolve) => {
+        execFile(
+          'taskkill.exe',
+          ['/PID', String(this.child.pid), '/T', '/F'],
+          { timeout: 3000, maxBuffer: 65536, windowsHide: true },
+          (error) => {
+            if (error && this.running) this.child.kill('SIGTERM');
+            resolve();
+          },
+        );
+      });
+    } else this.sendSignal('SIGTERM');
+    const finishedWithin = async (ms: number) => {
+      const deadline = Date.now() + ms;
+      while (this.running || this.groupRunning()) {
+        if (Date.now() >= deadline) return false;
+        await delay(20);
+      }
+      return true;
     };
     if (await finishedWithin(1000)) return;
-    this.child.kill('SIGKILL');
+    this.sendSignal('SIGKILL');
     if (!(await finishedWithin(3000))) throw new Error('Godot did not terminate after SIGKILL');
   }
 
@@ -109,6 +160,7 @@ export class GodotProcess {
 export class ProcessSlot {
   current: GodotProcess | null = null;
   private queue: Promise<unknown> = Promise.resolve();
+  private closed = false;
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.queue.then(operation);
     this.queue = result.catch(() => undefined);
@@ -116,10 +168,20 @@ export class ProcessSlot {
   }
   start(command: string, args: string[], timeoutMs?: number) {
     return this.enqueue(async () => {
+      if (this.closed) throw new Error('Process slot is closed');
       await this.current?.stop();
+      if (this.closed) throw new Error('Process slot is closed');
       this.current = await GodotProcess.start(command, args, timeoutMs);
+      if (this.closed) {
+        await this.current.stop();
+        throw new Error('Process slot is closed');
+      }
       return this.current;
     });
+  }
+  shutdown() {
+    this.closed = true;
+    return this.stop();
   }
   stop() {
     return this.enqueue(async () => {
