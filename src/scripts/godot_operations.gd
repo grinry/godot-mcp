@@ -56,11 +56,12 @@ func _init():
     
     log_info("Executing operation: " + operation)
     
+    var success = true
     match operation:
         "create_scene":
-            create_scene(params)
+            success = create_scene(params)
         "add_node":
-            add_node(params)
+            success = add_node(params)
         "load_sprite":
             load_sprite(params)
         "export_mesh_library":
@@ -75,7 +76,7 @@ func _init():
             log_error("Unknown operation: " + operation)
             quit(1)
     
-    quit()
+    quit(0 if success else 1)
 
 # Logging functions
 func log_debug(message):
@@ -162,398 +163,115 @@ func instantiate_class(name_of_class):
     return result
 
 # Create a new scene with a specified root node type
-func create_scene(params):
-    print("Creating scene: " + params.scene_path)
-    
-    # Get project paths and log them for debugging
-    var project_res_path = "res://"
-    var project_user_path = "user://"
-    var global_res_path = ProjectSettings.globalize_path(project_res_path)
-    var global_user_path = ProjectSettings.globalize_path(project_user_path)
-    
-    if debug_mode:
-        print("Project paths:")
-        print("- res:// path: " + project_res_path)
-        print("- user:// path: " + project_user_path)
-        print("- Globalized res:// path: " + global_res_path)
-        print("- Globalized user:// path: " + global_user_path)
-        
-        # Print some common environment variables for debugging
-        print("Environment variables:")
-        var env_vars = ["PATH", "HOME", "USER", "TEMP", "GODOT_PATH"]
-        for env_var in env_vars:
-            if OS.has_environment(env_var):
-                print("  " + env_var + " = " + OS.get_environment(env_var))
-    
-    # Normalize the scene path
-    var full_scene_path = params.scene_path
-    if not full_scene_path.begins_with("res://"):
-        full_scene_path = "res://" + full_scene_path
-    if debug_mode:
-        print("Scene path (with res://): " + full_scene_path)
-    
-    # Convert resource path to an absolute path
-    var absolute_scene_path = ProjectSettings.globalize_path(full_scene_path)
-    if debug_mode:
-        print("Absolute scene path: " + absolute_scene_path)
-    
-    # Get the scene directory paths
-    var scene_dir_res = full_scene_path.get_base_dir()
-    var scene_dir_abs = absolute_scene_path.get_base_dir()
-    if debug_mode:
-        print("Scene directory (resource path): " + scene_dir_res)
-        print("Scene directory (absolute path): " + scene_dir_abs)
-    
-    # Only do extensive testing in debug mode
-    if debug_mode:
-        # Try to create a simple test file in the project root to verify write access
-        var initial_test_file_path = "res://godot_mcp_test_write.tmp"
-        var initial_test_file = FileAccess.open(initial_test_file_path, FileAccess.WRITE)
-        if initial_test_file:
-            initial_test_file.store_string("Test write access")
-            initial_test_file.close()
-            print("Successfully wrote test file to project root: " + initial_test_file_path)
-            
-            # Verify the test file exists
-            var initial_test_file_exists = FileAccess.file_exists(initial_test_file_path)
-            print("Test file exists check: " + str(initial_test_file_exists))
-            
-            # Clean up the test file
-            if initial_test_file_exists:
-                var remove_error = DirAccess.remove_absolute(ProjectSettings.globalize_path(initial_test_file_path))
-                print("Test file removal result: " + str(remove_error))
-        else:
-            var write_error = FileAccess.get_open_error()
-            printerr("Failed to write test file to project root: " + str(write_error))
-            printerr("This indicates a serious permission issue with the project directory")
-    
-    # Use traditional if-else statement for better compatibility
-    var root_node_type = "Node2D"  # Default value
-    if params.has("root_node_type"):
-        root_node_type = params.root_node_type
-    if debug_mode:
-        print("Root node type: " + root_node_type)
-    
-    # Create the root node
-    var scene_root = instantiate_class(root_node_type)
-    if not scene_root:
-        printerr("Failed to instantiate node of type: " + root_node_type)
-        printerr("Make sure the class exists and can be instantiated")
-        printerr("Check if the class is registered in ClassDB or available as a script")
-        quit(1)
-    
-    scene_root.name = "root"
-    if debug_mode:
-        print("Root node created with name: " + scene_root.name)
-    
-    # Set the owner of the root node to itself (important for scene saving)
-    scene_root.owner = scene_root
-    
-    # Pack the scene
-    var packed_scene = PackedScene.new()
-    var result = packed_scene.pack(scene_root)
-    if debug_mode:
-        print("Pack result: " + str(result) + " (OK=" + str(OK) + ")")
-    
-    if result == OK:
-        # Only do extensive testing in debug mode
-        if debug_mode:
-            # First, let's verify we can write to the project directory
-            print("Testing write access to project directory...")
-            var test_write_path = "res://test_write_access.tmp"
-            var test_write_abs = ProjectSettings.globalize_path(test_write_path)
-            var test_file = FileAccess.open(test_write_path, FileAccess.WRITE)
-            
-            if test_file:
-                test_file.store_string("Write test")
-                test_file.close()
-                print("Successfully wrote test file to project directory")
-                
-                # Clean up test file
-                if FileAccess.file_exists(test_write_path):
-                    var remove_error = DirAccess.remove_absolute(test_write_abs)
-                    print("Test file removal result: " + str(remove_error))
-            else:
-                var write_error = FileAccess.get_open_error()
-                printerr("Failed to write test file to project directory: " + str(write_error))
-                printerr("This may indicate permission issues with the project directory")
-                # Continue anyway, as the scene directory might still be writable
-        
-        # Ensure the scene directory exists using DirAccess
-        if debug_mode:
-            print("Ensuring scene directory exists...")
-        
-        # Get the scene directory relative to res://
-        var scene_dir_relative = scene_dir_res.substr(6)  # Remove "res://" prefix
-        if debug_mode:
-            print("Scene directory (relative to res://): " + scene_dir_relative)
-        
-        # Create the directory if needed
-        if not scene_dir_relative.is_empty():
-            # First check if it exists
-            var dir_exists = DirAccess.dir_exists_absolute(scene_dir_abs)
-            if debug_mode:
-                print("Directory exists check (absolute): " + str(dir_exists))
-            
-            if not dir_exists:
-                if debug_mode:
-                    print("Directory doesn't exist, creating: " + scene_dir_relative)
-                
-                # Try to create the directory using DirAccess
-                var dir = DirAccess.open("res://")
-                if dir == null:
-                    var open_error = DirAccess.get_open_error()
-                    printerr("Failed to open res:// directory: " + str(open_error))
-                    
-                    # Try alternative approach with absolute path
-                    if debug_mode:
-                        print("Trying alternative directory creation approach...")
-                    var make_dir_error = DirAccess.make_dir_recursive_absolute(scene_dir_abs)
-                    if debug_mode:
-                        print("Make directory result (absolute): " + str(make_dir_error))
-                    
-                    if make_dir_error != OK:
-                        printerr("Failed to create directory using absolute path")
-                        printerr("Error code: " + str(make_dir_error))
-                        quit(1)
-                else:
-                    # Create the directory using the DirAccess instance
-                    if debug_mode:
-                        print("Creating directory using DirAccess: " + scene_dir_relative)
-                    var make_dir_error = dir.make_dir_recursive(scene_dir_relative)
-                    if debug_mode:
-                        print("Make directory result: " + str(make_dir_error))
-                    
-                    if make_dir_error != OK:
-                        printerr("Failed to create directory: " + scene_dir_relative)
-                        printerr("Error code: " + str(make_dir_error))
-                        quit(1)
-                
-                # Verify the directory was created
-                dir_exists = DirAccess.dir_exists_absolute(scene_dir_abs)
-                if debug_mode:
-                    print("Directory exists check after creation: " + str(dir_exists))
-                
-                if not dir_exists:
-                    printerr("Directory reported as created but does not exist: " + scene_dir_abs)
-                    printerr("This may indicate a problem with path resolution or permissions")
-                    quit(1)
-            elif debug_mode:
-                print("Directory already exists: " + scene_dir_abs)
-        
-        # Save the scene
-        if debug_mode:
-            print("Saving scene to: " + full_scene_path)
-        var save_error = ResourceSaver.save(packed_scene, full_scene_path)
-        if debug_mode:
-            print("Save result: " + str(save_error) + " (OK=" + str(OK) + ")")
-        
-        if save_error == OK:
-            # Only do extensive testing in debug mode
-            if debug_mode:
-                # Wait a moment to ensure file system has time to complete the write
-                print("Waiting for file system to complete write operation...")
-                OS.delay_msec(500)  # 500ms delay
-                
-                # Verify the file was actually created using multiple methods
-                var file_check_abs = FileAccess.file_exists(absolute_scene_path)
-                print("File exists check (absolute path): " + str(file_check_abs))
-                
-                var file_check_res = FileAccess.file_exists(full_scene_path)
-                print("File exists check (resource path): " + str(file_check_res))
-                
-                var res_exists = ResourceLoader.exists(full_scene_path)
-                print("Resource exists check: " + str(res_exists))
-                
-                # If file doesn't exist by absolute path, try to create a test file in the same directory
-                if not file_check_abs and not file_check_res:
-                    printerr("Scene file not found after save. Trying to diagnose the issue...")
-                    
-                    # Try to write a test file to the same directory
-                    var test_scene_file_path = scene_dir_res + "/test_scene_file.tmp"
-                    var test_scene_file = FileAccess.open(test_scene_file_path, FileAccess.WRITE)
-                    
-                    if test_scene_file:
-                        test_scene_file.store_string("Test scene directory write")
-                        test_scene_file.close()
-                        print("Successfully wrote test file to scene directory: " + test_scene_file_path)
-                        
-                        # Check if the test file exists
-                        var test_file_exists = FileAccess.file_exists(test_scene_file_path)
-                        print("Test file exists: " + str(test_file_exists))
-                        
-                        if test_file_exists:
-                            # Directory is writable, so the issue is with scene saving
-                            printerr("Directory is writable but scene file wasn't created.")
-                            printerr("This suggests an issue with ResourceSaver.save() or the packed scene.")
-                            
-                            # Try saving with a different approach
-                            print("Trying alternative save approach...")
-                            var alt_save_error = ResourceSaver.save(packed_scene, test_scene_file_path + ".tscn")
-                            print("Alternative save result: " + str(alt_save_error))
-                            
-                            # Clean up test files
-                            DirAccess.remove_absolute(ProjectSettings.globalize_path(test_scene_file_path))
-                            if alt_save_error == OK:
-                                DirAccess.remove_absolute(ProjectSettings.globalize_path(test_scene_file_path + ".tscn"))
-                        else:
-                            printerr("Test file couldn't be verified. This suggests filesystem access issues.")
-                    else:
-                        var write_error = FileAccess.get_open_error()
-                        printerr("Failed to write test file to scene directory: " + str(write_error))
-                        printerr("This confirms there are permission or path issues with the scene directory.")
-                    
-                    # Return error since we couldn't create the scene file
-                    printerr("Failed to create scene: " + params.scene_path)
-                    quit(1)
-                
-                # If we get here, at least one of our file checks passed
-                if file_check_abs or file_check_res or res_exists:
-                    print("Scene file verified to exist!")
-                    
-                    # Try to load the scene to verify it's valid
-                    var test_load = ResourceLoader.load(full_scene_path)
-                    if test_load:
-                        print("Scene created and verified successfully at: " + params.scene_path)
-                        print("Scene file can be loaded correctly.")
-                    else:
-                        print("Scene file exists but cannot be loaded. It may be corrupted or incomplete.")
-                        # Continue anyway since the file exists
-                    
-                    print("Scene created successfully at: " + params.scene_path)
-                else:
-                    printerr("All file existence checks failed despite successful save operation.")
-                    printerr("This indicates a serious issue with file system access or path resolution.")
-                    quit(1)
-            else:
-                # In non-debug mode, just check if the file exists
-                var file_exists = FileAccess.file_exists(full_scene_path)
-                if file_exists:
-                    print("Scene created successfully at: " + params.scene_path)
-                else:
-                    printerr("Failed to create scene: " + params.scene_path)
-                    quit(1)
-        else:
-            # Handle specific error codes
-            var error_message = "Failed to save scene. Error code: " + str(save_error)
-            
-            if save_error == ERR_CANT_CREATE:
-                error_message += " (ERR_CANT_CREATE - Cannot create the scene file)"
-            elif save_error == ERR_CANT_OPEN:
-                error_message += " (ERR_CANT_OPEN - Cannot open the scene file for writing)"
-            elif save_error == ERR_FILE_CANT_WRITE:
-                error_message += " (ERR_FILE_CANT_WRITE - Cannot write to the scene file)"
-            elif save_error == ERR_FILE_NO_PERMISSION:
-                error_message += " (ERR_FILE_NO_PERMISSION - No permission to write the scene file)"
-            
-            printerr(error_message)
-            quit(1)
-    else:
-        printerr("Failed to pack scene: " + str(result))
-        printerr("Error code: " + str(result))
-        quit(1)
+func operation_error(message):
+    printerr("Failed to " + message)
+    return false
 
-# Add a node to an existing scene
+func create_scene(params):
+    var path = params.scene_path
+    if not path.begins_with("res://"):
+        path = "res://" + path
+    var root_type = params.get("root_node_type", "Node2D")
+    var scene_root = instantiate_class(root_type)
+    if not scene_root is Node:
+        if scene_root is Object and not scene_root is RefCounted:
+            scene_root.free()
+        return operation_error("instantiate root node: " + root_type)
+    scene_root.name = "root"
+    # A root cannot own itself. PackedScene includes the root automatically.
+    var packed = PackedScene.new()
+    var result = packed.pack(scene_root)
+    if result == OK:
+        result = DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path.get_base_dir()))
+    if result == OK:
+        result = ResourceSaver.save(packed, path)
+    scene_root.free()
+    if result != OK:
+        return operation_error("save scene: " + str(result))
+    print("Scene created successfully: " + path)
+    return true
+
+# Validate JSON before set(), which otherwise silently drops incompatible values.
+func convert_property(node, property, value):
+    var target_type = -1
+    for info in node.get_property_list():
+        if info.name == property:
+            target_type = info.type
+            break
+    if target_type == -1:
+        return {"ok": false, "error": "Unknown property: " + property}
+    var sizes = {TYPE_VECTOR2: 2, TYPE_VECTOR2I: 2, TYPE_VECTOR3: 3, TYPE_VECTOR3I: 3, TYPE_VECTOR4: 4, TYPE_VECTOR4I: 4, TYPE_QUATERNION: 4, TYPE_COLOR: 4}
+    if target_type in sizes:
+        if not value is Array or (value.size() != sizes[target_type] and not (target_type == TYPE_COLOR and value.size() == 3)):
+            return {"ok": false, "error": "Invalid component count for " + property}
+        for component in value:
+            if not (component is float or component is int) or not is_finite(float(component)):
+                return {"ok": false, "error": "Invalid numeric component for " + property}
+            if target_type in [TYPE_VECTOR2I, TYPE_VECTOR3I, TYPE_VECTOR4I] and component != int(component):
+                return {"ok": false, "error": "Expected integer component for " + property}
+        match target_type:
+            TYPE_VECTOR2: value = Vector2(value[0], value[1])
+            TYPE_VECTOR2I: value = Vector2i(value[0], value[1])
+            TYPE_VECTOR3: value = Vector3(value[0], value[1], value[2])
+            TYPE_VECTOR3I: value = Vector3i(value[0], value[1], value[2])
+            TYPE_VECTOR4: value = Vector4(value[0], value[1], value[2], value[3])
+            TYPE_VECTOR4I: value = Vector4i(value[0], value[1], value[2], value[3])
+            TYPE_QUATERNION: value = Quaternion(value[0], value[1], value[2], value[3])
+            TYPE_COLOR: value = Color(value[0], value[1], value[2], value[3] if value.size() == 4 else 1.0)
+    elif target_type == TYPE_INT and value is float:
+        if not is_finite(value) or value != int(value):
+            return {"ok": false, "error": "Expected integer for " + property}
+        value = int(value)
+    elif target_type == TYPE_OBJECT and value is String and value.begins_with("res://"):
+        value = load(value)
+        if value == null:
+            return {"ok": false, "error": "Cannot load resource for " + property}
+    elif typeof(value) != target_type and not (target_type == TYPE_FLOAT and value is int) and not (target_type == TYPE_STRING_NAME and value is String):
+        return {"ok": false, "error": "Incompatible type for " + property}
+    return {"ok": true, "value": value}
+
 func add_node(params):
-    print("Adding node to scene: " + params.scene_path)
-    
-    var full_scene_path = params.scene_path
-    if not full_scene_path.begins_with("res://"):
-        full_scene_path = "res://" + full_scene_path
-    if debug_mode:
-        print("Scene path (with res://): " + full_scene_path)
-    
-    var absolute_scene_path = ProjectSettings.globalize_path(full_scene_path)
-    if debug_mode:
-        print("Absolute scene path: " + absolute_scene_path)
-    
-    if not FileAccess.file_exists(absolute_scene_path):
-        printerr("Scene file does not exist at: " + absolute_scene_path)
-        quit(1)
-    
-    var scene = load(full_scene_path)
-    if not scene:
-        printerr("Failed to load scene: " + full_scene_path)
-        quit(1)
-    
-    if debug_mode:
-        print("Scene loaded successfully")
+    var path = params.scene_path
+    if not path.begins_with("res://"):
+        path = "res://" + path
+    var scene = load(path)
+    if not scene is PackedScene:
+        return operation_error("load PackedScene: " + path)
     var scene_root = scene.instantiate()
-    if debug_mode:
-        print("Scene instantiated")
-    
-    # Use traditional if-else statement for better compatibility
-    var parent_path = "root"  # Default value
-    if params.has("parent_node_path"):
-        parent_path = params.parent_node_path
-    if debug_mode:
-        print("Parent path: " + parent_path)
-    
-    var parent = scene_root
-    if parent_path != "root":
-        parent = scene_root.get_node(parent_path.replace("root/", ""))
-        if not parent:
-            printerr("Parent node not found: " + parent_path)
-            quit(1)
-    if debug_mode:
-        print("Parent node found: " + parent.name)
-    
-    if debug_mode:
-        print("Instantiating node of type: " + params.node_type)
+    var parent_path = params.get("parent_node_path", "root")
+    var parent = scene_root if parent_path == "root" else scene_root.get_node_or_null(parent_path.trim_prefix("root/"))
+    if parent == null:
+        scene_root.free()
+        return operation_error("find parent node: " + parent_path)
     var new_node = instantiate_class(params.node_type)
-    if not new_node:
-        printerr("Failed to instantiate node of type: " + params.node_type)
-        printerr("Make sure the class exists and can be instantiated")
-        printerr("Check if the class is registered in ClassDB or available as a script")
-        quit(1)
+    if not new_node is Node:
+        if new_node is Object and not new_node is RefCounted:
+            new_node.free()
+        scene_root.free()
+        return operation_error("instantiate node: " + params.node_type)
     new_node.name = params.node_name
-    if debug_mode:
-        print("New node created with name: " + new_node.name)
-    
-    if params.has("properties"):
-        if debug_mode:
-            print("Setting properties on node")
-        var properties = params.properties
-        for property in properties:
-            if debug_mode:
-                print("Setting property: " + property + " = " + str(properties[property]))
-            var value = properties[property]
-            if typeof(value) == TYPE_STRING and value.begins_with("res://"):
-                value = load(value)
-                if debug_mode:
-                    print("Loaded resource for property: " + property + " -> " + str(value))
-            new_node.set(property, value)
-    
+    if not params.get("properties", {}) is Dictionary:
+        new_node.free()
+        scene_root.free()
+        return operation_error("set properties: expected an object")
+    for property in params.get("properties", {}):
+        var converted = convert_property(new_node, property, params.properties[property])
+        if not converted.ok:
+            new_node.free()
+            scene_root.free()
+            return operation_error("set property: " + converted.error)
+        new_node.set(property, converted.value)
     parent.add_child(new_node)
     new_node.owner = scene_root
-    if debug_mode:
-        print("Node added to parent and ownership set")
-    
-    var packed_scene = PackedScene.new()
-    var result = packed_scene.pack(scene_root)
-    if debug_mode:
-        print("Pack result: " + str(result) + " (OK=" + str(OK) + ")")
-    
+    var packed = PackedScene.new()
+    var result = packed.pack(scene_root)
     if result == OK:
-        if debug_mode:
-            print("Saving scene to: " + absolute_scene_path)
-        var save_error = ResourceSaver.save(packed_scene, absolute_scene_path)
-        if debug_mode:
-            print("Save result: " + str(save_error) + " (OK=" + str(OK) + ")")
-        if save_error == OK:
-            if debug_mode:
-                var file_check_after = FileAccess.file_exists(absolute_scene_path)
-                print("File exists check after save: " + str(file_check_after))
-                if file_check_after:
-                    print("Node '" + params.node_name + "' of type '" + params.node_type + "' added successfully")
-                else:
-                    printerr("File reported as saved but does not exist at: " + absolute_scene_path)
-            else:
-                print("Node '" + params.node_name + "' of type '" + params.node_type + "' added successfully")
-        else:
-            printerr("Failed to save scene: " + str(save_error))
-    else:
-        printerr("Failed to pack scene: " + str(result))
+        result = ResourceSaver.save(packed, path)
+    scene_root.free()
+    if result != OK:
+        return operation_error("save scene: " + str(result))
+    print("Node '" + params.node_name + "' added successfully")
+    return true
 
 # Load a sprite into a Sprite2D node
 func load_sprite(params):
@@ -1059,19 +777,11 @@ func resave_resources(params):
                 if debug_mode:
                     print("Save result: " + str(error) + " (OK=" + str(OK) + ")")
                 
-                if error == OK:
+                if error == OK and FileAccess.file_exists(uid_path):
                     generated_uids += 1
-                    if debug_mode:
-                        print("Generated UID for: " + script_path)
-                    
-                        # Verify the UID file was actually created
-                        var uid_check_after = FileAccess.file_exists(uid_path)
-                        print("UID file exists check after save: " + str(uid_check_after))
-                    
-                        if not uid_check_after:
-                            printerr("UID file reported as generated but does not exist at: " + uid_path)
+                    log_debug("Generated UID for: " + script_path)
                 else:
-                    printerr("Failed to generate UID for: " + script_path + ", error: " + str(error))
+                    printerr("Failed to generate UID for: " + script_path + ". Import the project in editor mode first.")
             else:
                 printerr("Failed to load resource: " + script_path)
         elif debug_mode:

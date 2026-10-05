@@ -7,7 +7,7 @@
 
 ## Project overview
 
-This repository is `grinry/godot-mcp`, a fork of `Coding-Solo/godot-mcp` by Solomon Elias. The public npm package is `@grinry/godot-mcp`; its executable is `godot-mcp`. Preserve upstream author credit and the MIT license when updating metadata or documentation.
+This repository is `grinry/godot-mcp`. The public npm package is `@grinry/godot-mcp`; its executable is `godot-mcp`. Keep original author credit in README.md and package.json, and preserve the MIT license.
 
 The server uses MCP over stdio to launch Godot, run projects, collect debug output, and manipulate scenes and resources. Simple operations call the Godot executable directly; complex operations use a bundled GDScript script.
 
@@ -23,6 +23,11 @@ The server uses MCP over stdio to launch Godot, run projects, collect debug outp
 
 `build/` is generated and ignored. Edit source files, not generated output.
 
+## Working aggreements
+
+- Never commit and push without approval.
+- `main` is primary branch, start feature branches from it when starting working on a new feature. PR's need to target it too.
+
 ## Development commands
 
 Use npm and keep `package-lock.json` synchronized with dependency changes.
@@ -33,11 +38,13 @@ Use npm and keep `package-lock.json` synchronized with dependency changes.
 - `npm run check:fix`: apply formatting, safe lint fixes, and import sorting.
 - `npm run format`: format supported files.
 - `npm run lint`: run lint rules only.
+- `npm test`: build and run regression tests.
+- `npm run build:mcpb`: create and verify the desktop bundle in ignored `dist/`.
 - `npm run watch`: watch and compile TypeScript only; run a full build after GDScript changes.
 - `npm run inspector`: open the MCP Inspector against the built server.
 - `npm pack --dry-run`: inspect package contents without publishing.
 
-The package declares Node.js >=18; the release workflow uses Node.js 24. Keep runtime changes compatible with the declared minimum unless intentionally updating it.
+The package declares Node.js >=22.14; the release workflow uses Node.js 24. Keep runtime changes compatible with the declared minimum unless intentionally updating it.
 
 ## Implementation conventions
 
@@ -52,7 +59,7 @@ The package declares Node.js >=18; the release workflow uses Node.js 24. Keep ru
 
 ## Verification
 
-There is currently no automated test suite. Biome checks run in CI and before releases.
+Run `npm test` for lifecycle and discovery regression coverage. Set `GODOT_TEST_PATH` to include real Godot integration tests `GODOT_TEST_RENDER=true` for display-dependent screenshots, `GODOT_TEST_EXPORT=true` for a Web export with installed templates, and `GUT_TEST_ADDON_PATH` for installed GUT integration. Biome and regression tests run in CI.
 
 - Run `npm run check` after changes to supported source/configuration files.
 - Biome uses recommended rules with two exceptions scoped to the legacy `src/index.ts`: explicit `any` and non-null assertions. Avoid introducing these patterns in new code.
@@ -66,7 +73,7 @@ There is currently no automated test suite. Biome checks run in CI and before re
 
 ## Releases
 
-- Add a changeset with `npm run changeset` for releasable changes, selecting `@grinry/godot-mcp` and the appropriate version bump. Documentation-only changes need no changeset unless intended for publication.
+- Add a changeset with `npm run changeset` for releasable changes, selecting `@grinry/godot-mcp` and the appropriate version bump. Documentation-only  changes (or changes that does not touch ./src or ./scripts) need no changeset unless intended for publication.
 - Let Changesets manage versions and changelogs. `npm run version-packages` consumes changesets and synchronizes the lockfile; do not run it during routine implementation unless preparing a release.
 - Pushes to `main` create/update a release PR when changesets are pending. Merging that PR publishes the new version publicly and creates a GitHub release.
 - CI uses npm trusted publishing configured for `grinry/godot-mcp` and workflow `release.yml`, with `id-token: write`. Do not introduce npm tokens or committed credentials.

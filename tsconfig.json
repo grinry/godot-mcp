@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "node",
+    "types": ["node"],
     "outDir": "./build",
     "rootDir": "./src",
     "strict": true,

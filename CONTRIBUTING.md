@@ -249,3 +249,13 @@ retry a failed publication.
 For local inspection, `npm run version-packages` consumes changesets and updates
 versions and the lockfile. `npm run release` builds and publishes using your npm
 credentials; only run it when you intend to publish.
+
+## Upstream adaptations and testing
+
+Use Node.js >=22.14. Run `npm run check` and `npm test` before proposing changes. The default test suite uses disposable files and child processes; set `GODOT_TEST_PATH` to include Godot integration coverage. No tests modify a real project. Screenshot rendering requires a display, and successful exports additionally require matching export templates.
+
+New process and workflow code lives in `src/godot-process.ts`, `src/project-files.ts`, `src/project-paths.ts`, and `src/workflow-tools.ts`. Record source PR references in changesets when adapting upstream work, and preserve this project’s package metadata.
+
+The live-session bridge is in `src/live-session.ts` and `src/scripts/live_session.gd`. Keep its private IPC directory, authentication, message limits, request IDs and cleanup intact. It must never install itself into a user's project or an exported game.
+
+`npm run build:mcpb` builds and validates a desktop bundle under ignored `dist/`, outside the npm package's `build/` files. `mcpb-manifest.json` is a template; package version, runtime requirement and current MCP tool descriptions are filled during the build. `scripts/sync-metadata.js` keeps the Codex plugin version aligned during Changesets versioning.
