@@ -1,6 +1,6 @@
 {
   "name": "@grinry/godot-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "MCP server for interfacing with Godot game engine. Provides tools for launching the editor, running projects, and capturing debug output.",
   "keywords": [
     "godot",
