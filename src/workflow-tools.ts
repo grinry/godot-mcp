@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
-import { GodotProcess } from './godot-process.js';
+import type { CallToolResult, JSONObject, Tool } from '@modelcontextprotocol/server';
+import { OperationRunner, processDiagnostics } from './operation-runner.js';
 import { listProjectFiles } from './project-files.js';
 import { projectDirectory, projectFile, projectRoot } from './project-paths.js';
 
@@ -12,7 +12,7 @@ const timeout = { type: 'integer', minimum: 1, maximum: 600000 };
 const tool = (
   name: string,
   description: string,
-  properties: Record<string, object>,
+  properties: JSONObject,
   required: string[],
 ): Tool => ({
   name,
@@ -20,6 +20,21 @@ const tool = (
   inputSchema: { type: 'object', properties, required },
 });
 export const extraTools: Tool[] = [
+  tool(
+    'get_runtime_tree',
+    'Inspect the live debug session scene tree without changing pause state. Returns bounded node paths, classes and script paths.',
+    {
+      maxDepth: { type: 'integer', minimum: 0, maximum: 20 },
+      maxNodes: { type: 'integer', minimum: 1, maximum: 200 },
+    },
+    [],
+  ),
+  tool(
+    'close_session',
+    'Stop and release an explicit process/debug session.',
+    { sessionId: { type: 'string' } },
+    ['sessionId'],
+  ),
   tool(
     'start_debug_session',
     'Run a temporary live debug session. Does not install addons or change project settings. Replaces the current game run.',
@@ -143,35 +158,13 @@ function time(value: unknown, fallback = 60000) {
     throw new Error('timeoutMs must be between 1 and 600000');
   return result;
 }
-function diagnostics(child: GodotProcess) {
-  return [...child.output, ...child.errors].filter((line) =>
-    /SCRIPT ERROR:|Parse Error:|^ERROR:|^Error:|Failed to/i.test(line),
-  );
-}
-async function execute(command: string, args: string[], timeoutMs: number, signal?: AbortSignal) {
-  signal?.throwIfAborted();
-  const child = await GodotProcess.start(command, args, timeoutMs);
-  const abort = () => {
-    void child.stop().catch(() => undefined);
-  };
-  signal?.addEventListener('abort', abort, { once: true });
-  if (signal?.aborted) abort();
-  try {
-    await child.done;
-    signal?.throwIfAborted();
-    return child;
-  } finally {
-    signal?.removeEventListener('abort', abort);
-    await child.stop();
-  }
-}
-
 export async function handleExtraTool(
   name: string,
   args: Record<string, unknown>,
   godot: string,
   scripts: string,
   signal?: AbortSignal,
+  runner = new OperationRunner(),
 ): Promise<CallToolResult> {
   const root = await projectRoot(args.projectPath);
   if (name === 'list_project_files') {
@@ -181,8 +174,8 @@ export async function handleExtraTool(
 
   if (name === 'run_gut_tests') {
     const command = await gutArguments(root, args);
-    const child = await execute(godot, command, timeoutMs, signal);
-    const errors = diagnostics(child);
+    const child = await runner.run(godot, command, timeoutMs, signal);
+    const errors = processDiagnostics(child);
     const nothingRun = child.output.some((line) =>
       /Nothing was run|^Tests\s+(?:none|0)\s*$/i.test(line),
     );
@@ -204,13 +197,13 @@ export async function handleExtraTool(
       (file) => file.endsWith('.gd') || file.endsWith('.gdscript'),
     )) {
       if (Date.now() >= deadline) return text({ valid: false, timedOut: true, results }, true);
-      const child = await execute(
+      const child = await runner.run(
         godot,
         ['--headless', '--path', root, '--check-only', '--script', `res://${path}`],
         Math.max(1, deadline - Date.now()),
         signal,
       );
-      const result = { path, ...child.snapshot(), diagnostics: diagnostics(child) };
+      const result = { path, ...child.snapshot(), diagnostics: processDiagnostics(child) };
       resultBytes += Buffer.byteLength(JSON.stringify(result));
       if (resultBytes > 2 * 1024 * 1024)
         return text({ valid: false, truncated: true, results, uncheckedScript: path }, true);
@@ -237,7 +230,7 @@ export async function handleExtraTool(
     const outputPath = isAbsolute(args.outputPath)
       ? args.outputPath
       : resolve(root, args.outputPath);
-    const child = await execute(
+    const child = await runner.run(
       godot,
       [
         '--headless',
@@ -250,7 +243,7 @@ export async function handleExtraTool(
       timeoutMs,
       signal,
     );
-    const errors = diagnostics(child);
+    const errors = processDiagnostics(child);
     const success =
       child.exitCode === 0 &&
       !child.timedOut &&
@@ -261,13 +254,13 @@ export async function handleExtraTool(
   }
   const resource = await projectFile(root, args.scenePath, ['.tscn', '.scn']);
   if (name === 'run_scene_test') {
-    const child = await execute(
+    const child = await runner.run(
       godot,
       ['--headless', '--path', root, resource.resource],
       timeoutMs,
       signal,
     );
-    const errors = diagnostics(child);
+    const errors = processDiagnostics(child);
     const passed =
       child.exitCode === 0 && !child.timedOut && !child.truncated && errors.length === 0;
     return text({ passed, ...child.snapshot(), diagnostics: errors }, !passed);
@@ -279,7 +272,7 @@ export async function handleExtraTool(
     const directory = await mkdtemp(join(tmpdir(), 'godot-mcp-capture-'));
     try {
       const output = join(directory, 'capture.png');
-      const child = await execute(
+      const child = await runner.run(
         godot,
         [
           '--path',

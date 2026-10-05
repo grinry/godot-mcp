@@ -1,8 +1,11 @@
 #!/usr/bin/env -S godot --headless --script
 extends SceneTree
 
+const SceneSafety = preload("scene_safety.gd")
+
 # Debug mode flag
 var debug_mode = false
+var operation_failed = false
 
 func _init():
     var args = OS.get_cmdline_args()
@@ -14,6 +17,7 @@ func _init():
     var script_index = args.find("--script")
     if script_index == -1:
         log_error("Could not find --script argument")
+        operation_failed = true
         quit(1)
     
     # The operation should be 2 positions after the script path (script_index + 1 is the script path itself)
@@ -24,6 +28,7 @@ func _init():
     if args.size() <= params_index:
         log_error("Usage: godot --headless --script godot_operations.gd <operation> <json_params>")
         log_error("Not enough command-line arguments provided.")
+        operation_failed = true
         quit(1)
     
     # Log all arguments for debugging
@@ -48,10 +53,12 @@ func _init():
     else:
         log_error("Failed to parse JSON parameters: " + params_json)
         log_error("JSON Error: " + json.get_error_message() + " at line " + str(json.get_error_line()))
+        operation_failed = true
         quit(1)
     
     if not params:
         log_error("Failed to parse JSON parameters: " + params_json)
+        operation_failed = true
         quit(1)
     
     log_info("Executing operation: " + operation)
@@ -74,9 +81,10 @@ func _init():
             resave_resources(params)
         _:
             log_error("Unknown operation: " + operation)
+            operation_failed = true
             quit(1)
     
-    quit(0 if success else 1)
+    quit(0 if success and not operation_failed else 1)
 
 # Logging functions
 func log_debug(message):
@@ -222,6 +230,8 @@ func convert_property(node, property, value):
         if not is_finite(value) or value != int(value):
             return {"ok": false, "error": "Expected integer for " + property}
         value = int(value)
+    elif target_type == TYPE_NODE_PATH and value is String:
+        value = NodePath(value)
     elif target_type == TYPE_OBJECT and value is String and value.begins_with("res://"):
         value = load(value)
         if value == null:
@@ -234,10 +244,17 @@ func add_node(params):
     var path = params.scene_path
     if not path.begins_with("res://"):
         path = "res://" + path
-    var scene = load(path)
+    var checked = SceneSafety.load_scene(path)
+    if not checked.ok:
+        printerr(checked.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var scene = checked.scene
     if not scene is PackedScene:
         return operation_error("load PackedScene: " + path)
     var scene_root = scene.instantiate()
+    var original_scripts = SceneSafety.script_references(scene_root)
     var parent_path = params.get("parent_node_path", "root")
     var parent = scene_root if parent_path == "root" else scene_root.get_node_or_null(parent_path.trim_prefix("root/"))
     if parent == null:
@@ -263,10 +280,11 @@ func add_node(params):
         new_node.set(property, converted.value)
     parent.add_child(new_node)
     new_node.owner = scene_root
-    var packed = PackedScene.new()
-    var result = packed.pack(scene_root)
-    if result == OK:
-        result = ResourceSaver.save(packed, path)
+    var preserved = SceneSafety.pack_preserving_scripts(scene_root, original_scripts)
+    if not preserved.ok:
+        scene_root.free()
+        return operation_error(preserved.error)
+    var result = ResourceSaver.save(preserved.scene, path)
     scene_root.free()
     if result != OK:
         return operation_error("save scene: " + str(result))
@@ -295,6 +313,7 @@ func load_sprite(params):
         # Get the absolute path for reference
         var absolute_path = ProjectSettings.globalize_path(full_scene_path)
         printerr("Absolute file path that doesn't exist: " + absolute_path)
+        operation_failed = true
         quit(1)
     
     # Ensure the texture path starts with res:// for Godot's resource system
@@ -306,9 +325,16 @@ func load_sprite(params):
         print("Full texture path (with res://): " + full_texture_path)
     
     # Load the scene
-    var scene = load(full_scene_path)
+    var checked = SceneSafety.load_scene(full_scene_path)
+    if not checked.ok:
+        printerr(checked.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var scene = checked.scene
     if not scene:
         printerr("Failed to load scene: " + full_scene_path)
+        operation_failed = true
         quit(1)
     
     if debug_mode:
@@ -316,6 +342,7 @@ func load_sprite(params):
     
     # Instance the scene
     var scene_root = scene.instantiate()
+    var original_scripts = SceneSafety.script_references(scene_root)
     if debug_mode:
         print("Scene instantiated")
     
@@ -342,6 +369,7 @@ func load_sprite(params):
     
     if not sprite_node:
         printerr("Node not found: " + params.node_path)
+        operation_failed = true
         quit(1)
     
     # Check if the node is a Sprite2D or compatible type
@@ -349,6 +377,7 @@ func load_sprite(params):
         print("Node class: " + sprite_node.get_class())
     if not (sprite_node is Sprite2D or sprite_node is Sprite3D or sprite_node is TextureRect):
         printerr("Node is not a sprite-compatible type: " + sprite_node.get_class())
+        operation_failed = true
         quit(1)
     
     # Load the texture
@@ -356,7 +385,8 @@ func load_sprite(params):
         print("Loading texture from: " + full_texture_path)
     var texture = load(full_texture_path)
     if not texture:
-        printerr("Failed to load texture: " + full_texture_path)
+        printerr("Failed to load texture: " + full_texture_path + ". Import the project in Godot or run --headless --editor --import; check that the texture is valid.")
+        operation_failed = true
         quit(1)
     
     if debug_mode:
@@ -373,8 +403,15 @@ func load_sprite(params):
             print("Set texture on TextureRect node")
     
     # Save the modified scene
-    var packed_scene = PackedScene.new()
-    var result = packed_scene.pack(scene_root)
+    var preserved = SceneSafety.pack_preserving_scripts(scene_root, original_scripts)
+    if not preserved.ok:
+        scene_root.free()
+        printerr(preserved.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var packed_scene = preserved.scene
+    var result = OK
     if debug_mode:
         print("Pack result: " + str(result) + " (OK=" + str(OK) + ")")
     
@@ -435,14 +472,22 @@ func export_mesh_library(params):
         # Get the absolute path for reference
         var absolute_path = ProjectSettings.globalize_path(full_scene_path)
         printerr("Absolute file path that doesn't exist: " + absolute_path)
+        operation_failed = true
         quit(1)
     
     # Load the scene
     if debug_mode:
         print("Loading scene from: " + full_scene_path)
-    var scene = load(full_scene_path)
+    var checked = SceneSafety.load_scene(full_scene_path)
+    if not checked.ok:
+        printerr(checked.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var scene = checked.scene
     if not scene:
         printerr("Failed to load scene: " + full_scene_path)
+        operation_failed = true
         quit(1)
     
     if debug_mode:
@@ -450,6 +495,7 @@ func export_mesh_library(params):
     
     # Instance the scene
     var scene_root = scene.instantiate()
+    var original_scripts = SceneSafety.script_references(scene_root)
     if debug_mode:
         print("Scene instantiated")
     
@@ -542,6 +588,7 @@ func export_mesh_library(params):
     if dir == null:
         printerr("Failed to open res:// directory")
         printerr("DirAccess error: " + str(DirAccess.get_open_error()))
+        operation_failed = true
         quit(1)
         
     var output_dir = full_output_path.get_base_dir()
@@ -554,6 +601,7 @@ func export_mesh_library(params):
         var error = dir.make_dir_recursive(output_dir.substr(6))  # Remove "res://" prefix
         if error != OK:
             printerr("Failed to create directory: " + output_dir + ", error: " + str(error))
+            operation_failed = true
             quit(1)
     
     # Save the mesh library
@@ -607,6 +655,7 @@ func find_files(path, extension):
 func get_uid(params):
     if not params.has("file_path"):
         printerr("File path is required")
+        operation_failed = true
         quit(1)
     
     # Ensure the file path starts with res:// for Godot's resource system
@@ -631,6 +680,7 @@ func get_uid(params):
     if not file_check:
         printerr("File does not exist at: " + file_path)
         printerr("Absolute file path that doesn't exist: " + absolute_path)
+        operation_failed = true
         quit(1)
     
     # Check if the UID file exists
@@ -684,8 +734,11 @@ func resave_resources(params):
     var project_path = "res://"
     if params.has("project_path"):
         project_path = params.project_path
-        if not project_path.begins_with("res://"):
-            project_path = "res://" + project_path
+        if not project_path.begins_with("res://") or project_path.trim_prefix("res://").contains(":") or project_path.split("/").has(".."):
+            printerr("Invalid resource root; expected res:// path inside the project")
+            operation_failed = true
+            quit(1)
+            return
         if not project_path.ends_with("/"):
             project_path += "/"
     
@@ -699,6 +752,14 @@ func resave_resources(params):
     if debug_mode:
         print("Found " + str(scenes.size()) + " scenes")
     
+    # Validate the whole set before writing any scene.
+    for scene_path in scenes:
+        var validation = SceneSafety.load_scene(scene_path)
+        if not validation.ok:
+            printerr(validation.error)
+            operation_failed = true
+            quit(1)
+            return
     # Resave each scene
     var success_count = 0
     var error_count = 0
@@ -718,7 +779,12 @@ func resave_resources(params):
             continue
         
         # Load the scene
-        var scene = load(scene_path)
+        var checked = SceneSafety.load_scene(scene_path)
+        if not checked.ok:
+            printerr(checked.error)
+            error_count += 1
+            continue
+        var scene = checked.scene
         if scene:
             if debug_mode:
                 print("Scene loaded successfully, saving...")
@@ -794,6 +860,9 @@ func resave_resources(params):
         print("- Scenes with errors: " + str(error_count))
         print("- Scripts/shaders missing UIDs: " + str(missing_uids))
         print("- UIDs successfully generated: " + str(generated_uids))
+    print("GODOT_MCP_UID_RESULT " + JSON.stringify({"resourceRoot": project_path, "scenesProcessed": scenes.size(), "scenesSaved": success_count, "sceneErrors": error_count, "scriptUidsMissing": missing_uids, "scriptUidsGenerated": generated_uids}))
+    if error_count > 0 or generated_uids < missing_uids:
+        operation_failed = true
     print("Resave operation complete")
 
 # Save changes to a scene file
@@ -818,12 +887,20 @@ func save_scene(params):
         # Get the absolute path for reference
         var absolute_path = ProjectSettings.globalize_path(full_scene_path)
         printerr("Absolute file path that doesn't exist: " + absolute_path)
+        operation_failed = true
         quit(1)
     
     # Load the scene
-    var scene = load(full_scene_path)
+    var checked = SceneSafety.load_scene(full_scene_path)
+    if not checked.ok:
+        printerr(checked.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var scene = checked.scene
     if not scene:
         printerr("Failed to load scene: " + full_scene_path)
+        operation_failed = true
         quit(1)
     
     if debug_mode:
@@ -831,6 +908,7 @@ func save_scene(params):
     
     # Instance the scene
     var scene_root = scene.instantiate()
+    var original_scripts = SceneSafety.script_references(scene_root)
     if debug_mode:
         print("Scene instantiated")
     
@@ -848,6 +926,7 @@ func save_scene(params):
         if dir == null:
             printerr("Failed to open res:// directory")
             printerr("DirAccess error: " + str(DirAccess.get_open_error()))
+            operation_failed = true
             quit(1)
             
         var scene_dir = save_path.get_base_dir()
@@ -860,11 +939,19 @@ func save_scene(params):
             var error = dir.make_dir_recursive(scene_dir.substr(6))  # Remove "res://" prefix
             if error != OK:
                 printerr("Failed to create directory: " + scene_dir + ", error: " + str(error))
+                operation_failed = true
                 quit(1)
     
     # Create a packed scene
-    var packed_scene = PackedScene.new()
-    var result = packed_scene.pack(scene_root)
+    var preserved = SceneSafety.pack_preserving_scripts(scene_root, original_scripts)
+    if not preserved.ok:
+        scene_root.free()
+        printerr(preserved.error)
+        operation_failed = true
+        quit(1)
+        return false
+    var packed_scene = preserved.scene
+    var result = OK
     if debug_mode:
         print("Pack result: " + str(result) + " (OK=" + str(OK) + ")")
     

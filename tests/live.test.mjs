@@ -74,7 +74,13 @@ test('live session receives input, captures changed state while paused and clean
       { kind: 'mouse_motion', x: 30, y: 40 },
     ])
       assert.notEqual((await call('simulate_input', event)).isError, true);
-    const logs = JSON.parse((await call('get_debug_output')).content[0].text);
+    let logs;
+    const deadline = Date.now() + 3000;
+    do {
+      logs = JSON.parse((await call('get_debug_output')).content[0].text);
+      if (logs.output.some((line) => line.startsWith('motion event 30'))) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } while (Date.now() < deadline);
     assert.ok(logs.output.includes('key event 32'), JSON.stringify(logs));
     assert.ok(logs.output.includes('mouse event 1'), JSON.stringify(logs));
     assert.ok(
@@ -83,6 +89,13 @@ test('live session receives input, captures changed state while paused and clean
     );
     assert.ok(logs.output.includes('received action'), JSON.stringify(logs));
     assert.notEqual((await call('set_debug_pause', { paused: true })).isError, true);
+    const tree = await call('get_runtime_tree', { maxDepth: 0, maxNodes: 1 });
+    assert.notEqual(tree.isError, true, JSON.stringify(tree));
+    const treeData = JSON.parse(tree.content[0].text);
+    assert.equal(treeData.nodes[0].path, '.');
+    assert.equal(treeData.nodes[0].scriptPath, 'res://scene.gd');
+    assert.equal(treeData.paused, true);
+    assert.equal((await call('get_runtime_tree', { maxNodes: 0 })).isError, true);
     const capture = await call('capture_screenshot');
     if (render) {
       assert.equal(capture.content[0].type, 'image', JSON.stringify(capture));
