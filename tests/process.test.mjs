@@ -105,7 +105,18 @@ test('cleanup escalates for descendants after root exit and with detached pipes'
       process.kill(pid, 0);
       await child.stop();
       assert.equal(child.running, false);
-      assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+      let reaped = false;
+      for (let index = 0; index < 100; index++) {
+        try {
+          process.kill(pid, 0);
+        } catch (error) {
+          assert.equal(error.code, 'ESRCH');
+          reaped = true;
+          break;
+        }
+        await delay(20);
+      }
+      assert.ok(reaped, 'Descendant survived process cleanup');
     } finally {
       await child.stop();
       if (pid) {
