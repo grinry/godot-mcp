@@ -1,5 +1,11 @@
 # @grinry/godot-mcp
 
+## 0.3.0
+
+### Minor Changes
+
+- 1330694: Add scene inspection and transactional editing, runtime property inspection and frame stepping, and project overviews. Improve validation with targeted script checks and structured diagnostics.
+
 ## 0.2.0
 
 ### Minor Changes
