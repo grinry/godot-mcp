@@ -9,7 +9,7 @@ Research date: 2026-10-06. Last updated: 2026-10-06. This living document tracks
 | Saved scene transactions | Implemented before this comparison | Inherited scenes and editing instance contents remain unsupported. |
 | Scene instancing and duplication | Implemented and verified | `instance_scene` / `duplicate_node` also work inside `modify_scene`. Duplication refuses instances, unique-name nodes, external node links and uncertain embedded references. Subtree extraction remains planned. |
 | Generic resource inspection/creation/editing | Implemented and verified | `get_resource_info`, `create_resource`, `set_resource_properties` cover built-in `.tres`/`.res` resources and supported typed properties. Custom resource creation, collections, transforms and specialized resource graphs remain planned. |
-| Reusable gameplay scenarios | Implemented; headless and rendered checks passed | `run_playtest` queues inputs at stepped frame boundaries, asserts state and returns screenshots/diagnostics, then stops the game. Screenshot baseline comparison, input recording and stress testing remain planned. |
+| Reusable gameplay scenarios | Implemented; headless and rendered checks passed | `run_playtest` queues inputs at stepped frame boundaries, asserts state and returns screenshots/diagnostics, then stops the game. Screenshot baseline comparison is implemented in the current follow-up branch with `compare_screenshot`; input recording and stress testing remain planned. |
 | Performance monitoring and property sampling | Snapshot and sampling implemented; targeted checks passed | `get_performance_monitors`, `sample_performance` and `sample_node_properties` provide bounded evidence and summaries. Custom monitors, passive capture and full profiling remain missing. |
 | Settings / autoload / InputMap editing | Implemented; targeted checks passed | Eight tools preserve comments, unrelated entries and autoload order with previews/hash checks. Autoload validation covers names/paths, not script inheritance, compilation, global-class conflicts or .NET compatibility. Unsupported input event variants remain read-only. |
 | Live editor / native undo | Missing, optional extension planned | Selection, unsaved scenes and editor UndoRedo need an editor bridge. |
@@ -38,11 +38,19 @@ Statuses become implemented only after code and relevant checks are complete. Ve
 
 - 2026-10-06: all 56 registered tools are named in README. Expanded the top Features list for validation/export, live feedback/input, reflection, sessions and transactional authoring. Clarified repository versus published-package availability, Godot 4 requirements, sampling session handles and the execution-policy limits on runtime/property/configuration reads.
 
+### Screenshot comparison implemented
+
+- Separate standards and behavior reviews against merged `main` found no actionable issues in the screenshot-comparison follow-up.
+
+- Add `compare_screenshot` playtest assertions with project-confined reference PNGs, per-channel tolerance, allowed changed-pixel ratio and inline diff evidence. Snapshot and validate baselines before replacing the selected game; never create or update reference files. The 47-test real-Godot suite passes; pixel tests cover RGBA/alpha differences, inclusive tolerance boundaries, dimension mismatches and immutable reference snapshots. Rendered MCP tests verify matching captures and preservation of existing games on missing references.
+
+- Follow-up verification: 47 tests passed with real Godot 4.7.1, rendering, Web export and GUT on Node 24; all seven affected tests pass with real rendering on Node 22.14. Portable checks cover preflight confinement/PNG limits, assertion budgets, cancellation/deadlines and temporary-file cleanup. MCP Inspector verified six rendered success/failure calls, including pixel mismatch evidence, subsequent-step execution, missing/invalid references and dimension mismatch. Strict discovery has zero schema warnings/errors; desktop bundle validates 56 tools and package contents include the comparator script. No baseline-update operation is exposed. Comparisons use RGBA8 channel differences, not perceptual analysis; references/captures are bounded to 8 MiB, 4096 pixels per axis and four million pixels.
+
 ### Next implementation batches
 
 1. Subtree extraction with explicit multi-file failure/rollback semantics, then broader resource value types.
 2. Richer resource/configuration value types, input event variants and deeper autoload compatibility validation.
-3. Screenshot baseline comparison, recorded input sequences and custom/passive monitor capture.
+3. Recorded input sequences, richer visual checks (regions/perceptual comparison) and custom/passive monitor capture.
 4. Optional editor bridge for selection/unsaved state/native undo, followed by a separate breakpoint debugger.
 
 ### Second batch implemented — configuration and sampling
@@ -65,7 +73,7 @@ Our existing surface is considerably stronger than basic launch-and-edit tooling
 - Scene inspection and transactional property, rename, reparent, removal, group and signal edits are implemented. `modify_scene` validates ordered operations and saves once through atomic replacement; `dryRun` and `expectedHash` support previews and stale-change rejection. Inherited scenes and edits inside scene instances are deliberately refused. [Scene tools](../src/scene-tools.ts), [documented restrictions](../README.md#project-inspection-and-transactional-editing)
 - Runtime sessions already support input, screenshots, tree/property inspection, pause and frame stepping. Explicit handles support independent sessions. The temporary authenticated file bridge needs no installed addon, project autoload modification or listening network port. Frame stepping follows Godot's process behavior and does not promise deterministic replay. [Runtime tools](../src/runtime-tools.ts), [runtime documentation](../README.md#live-visual-feedback-and-input)
 - Validation, scene tests, GUT execution and exports already exist. We can test gameplay without adding a second general-purpose test framework. [Workflow tools](../src/workflow-tools.ts)
-- Project overview reads settings, autoloads, input actions and text-resource dependencies; reflection exposes installed-engine class metadata. `set_main_scene` already changes one project setting. The missing pieces are broader editing and analysis, rather than basic discovery. [Project overview](../src/project-overview.ts), [authoring tools](../src/authoring-tools.ts)
+- Project overview reads settings, autoloads, input actions and text-resource dependencies; reflection exposes installed-engine class metadata. Configuration tools now preview and edit stored settings, autoload registrations and supported InputMap bindings. Deeper compatibility validation and dependency impact analysis remain missing. [Project overview](../src/project-overview.ts), [authoring tools](../src/authoring-tools.ts)
 
 ## Recommended priorities
 
@@ -73,17 +81,17 @@ Our existing surface is considerably stronger than basic launch-and-edit tooling
 
 Implemented: scene instancing, conservative subtree duplication and generic built-in resource creation/inspection/editing. Agents can assemble reusable scenes and configure supported materials/shapes through Godot. See [scene tools](../src/scene-tools.ts) and [resource tools](../src/resource-tools.ts).
 
-Reuse our typed values, path confinement, previews and content-hash checks. Keep ownership and instance boundaries explicit. Extraction writes multiple files, so its failure and rollback contract needs particular care. Follow with settings, autoload and InputMap editors that preserve unrelated configuration. This would expand everyday construction workflows substantially while fitting our current architecture.
+Reuse our typed values, path confinement, previews and content-hash checks. Keep ownership and instance boundaries explicit. Extraction writes multiple files, so its failure and rollback contract needs particular care. Settings, autoload and InputMap editors that preserve unrelated configuration are also implemented; richer typed values and deeper compatibility validation remain.
 
 ### 2. Add reusable playtest scenarios
 
 Implemented as [run_playtest](../src/playtest-tools.ts): start a scene, queue input, advance frames, assert property values with tolerances, capture evidence and return a structured pass/fail report. The owned game stops after success, failure or cancellation, releasing held inputs and temporary IPC. Reports refuse to claim success when game logs truncate.
 
-Start with state assertions and input sequences. Add screenshot baselines later with configurable masks and thresholds; rendering differences must not become unexplained failures. A recorded input sequence is useful automation, but should not be described as deterministic replay. Reuse GUT for tests requiring project-specific logic.
+State assertions, input sequences and PNG screenshot baselines with channel/changed-pixel thresholds are implemented. Region masks, perceptual comparison and input recording remain planned; rendering differences must not become unexplained failures. A recorded input sequence is useful automation, but should not be described as deterministic replay. Reuse GUT for tests requiring project-specific logic.
 
 ### 3. Add runtime performance observation
 
-Implemented: [get_performance_monitors](../src/runtime-tools.ts) returns bounded snapshots with timestamps, units and unavailable headless renderer metrics. Next: sampled node properties and monitor series with minimum, maximum and percentile summaries. This would help distinguish frame-time regressions, object growth and gameplay-state drift from a single snapshot.
+Implemented: [get_performance_monitors](../src/runtime-tools.ts) returns bounded snapshots with timestamps, units and unavailable headless renderer metrics. Paused-session `sample_performance` and `sample_node_properties` provide frame-based series and minimum, maximum, mean and percentile summaries. Custom monitors and passive capture remain planned.
 
 Call this monitor sampling, not a full profiler: function-level CPU attribution and detailed GPU profiling require additional instrumentation. Establish useful observation before inventing optimization tools.
 
