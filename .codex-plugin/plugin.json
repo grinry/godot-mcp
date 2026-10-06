@@ -1,6 +1,6 @@
 {
   "name": "godot-mcp-grinry",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Control Godot projects, edit scenes, run tests and capture screenshots through MCP.",
   "author": { "name": "grinry", "url": "https://github.com/grinry" },
   "homepage": "https://github.com/grinry/godot-mcp",
