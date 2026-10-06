@@ -123,6 +123,7 @@ export const legacyTools: (Tool & {
   },
   {
     name: 'create_scene',
+    annotations: { destructiveHint: true },
     handler: 'handleCreateScene',
     access: 'execute',
     session: 'none',
@@ -246,6 +247,7 @@ export const legacyTools: (Tool & {
   },
   {
     name: 'save_scene',
+    annotations: { destructiveHint: true },
     handler: 'handleSaveScene',
     access: 'execute',
     session: 'none',
@@ -292,6 +294,7 @@ export const legacyTools: (Tool & {
   },
   {
     name: 'update_project_uids',
+    annotations: { destructiveHint: true },
     handler: 'handleUpdateProjectUids',
     access: 'execute',
     session: 'none',

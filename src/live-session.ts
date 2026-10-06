@@ -81,7 +81,12 @@ export class LiveSession {
     }
     throw new Error('Debug session request timed out');
   }
-  request(operation: string, params: Record<string, unknown>, signal?: AbortSignal) {
+  request(
+    operation: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+    timeoutMs = 10000,
+  ) {
     return this.enqueue(async () => {
       if (!this.directory || !this.token) throw new Error('Start a debug session first');
       const directory = this.directory;
@@ -94,7 +99,7 @@ export class LiveSession {
           mode: 0o600,
         });
         await rename(temporary, join(directory, 'request.json'));
-        const response = await this.waitFor(responsePath, 10000, signal);
+        const response = await this.waitFor(responsePath, timeoutMs, signal);
         if (response.id !== id) throw new Error('Bridge response ID mismatch');
         if (response.ok !== true) throw new Error(String(response.error ?? 'Debug request failed'));
         if (operation !== 'screenshot') return response;

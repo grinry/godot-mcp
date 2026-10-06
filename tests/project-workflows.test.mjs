@@ -414,6 +414,16 @@ test('tool registry and read-only policy share metadata for every advertised too
     })),
   );
   const listed = registry.list();
+  for (const name of [
+    'run_playtest',
+    'start_debug_session',
+    'duplicate_node',
+    'create_resource',
+    'get_performance_monitors',
+  ])
+    assert.equal(listed.find((tool) => tool.name === name).annotations.destructiveHint, false);
+  for (const name of ['modify_scene', 'quit_godot', 'export_project'])
+    assert.equal(listed.find((tool) => tool.name === name).annotations.destructiveHint, true);
   assert.equal(new Set(listed.map((tool) => tool.name)).size, listed.length);
   const policy = new ToolPolicy([], true);
   for (const tool of listed) {

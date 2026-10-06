@@ -63,26 +63,40 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 
 ## Features
 
+This README describes the code in this checkout. Features with pending changesets may not yet be available in the published npm package or its plugin launcher; use a local build to try unreleased changes.
+
 - **Launch Godot Editor**: Open the Godot editor for a specific project
 - **Run Godot Projects**: Execute Godot projects in debug mode
 - **Capture Debug Output**: Retrieve console output and error messages
+- **Reusable Playtests**: Run frame-based input sequences, state assertions, and screenshot steps with structured results and cleanup
+- **Runtime Performance**: Read timestamped engine monitors with units and renderer availability
+- **Frame-Based Sampling**: Collect monitor/property series with scalar and vector summaries
+- **Project Configuration**: Preview and edit settings, autoloads and InputMap bindings while preserving unrelated comments and values
 - **Control Execution**: Start and stop Godot projects programmatically
 - **Get Godot Version**: Retrieve the installed Godot version
 - **List Godot Projects**: Find Godot projects in a specified directory
-- **Project Analysis**: Get detailed information about project structure
+- **Project Analysis**: Inspect project configuration, source declarations, dependencies and saved scene structure
+- **Validation and Export**: Check all or selected GDScript files, run scene tests or GUT tests, and export through existing presets
+- **Live Feedback and Input**: Inspect runtime trees/properties, simulate input, pause and step frames, and capture fresh-scene or running-game screenshots
+- **Godot Reflection**: Inspect built-in class properties, methods, signals and enums from the installed engine
+- **Independent Sessions**: Track separate game/editor processes with explicit handles on modern MCP clients
 - **Scene Management**:
   - Create new scenes with specified root node types
   - Add nodes to existing scenes with customizable properties
   - Load sprites and textures into Sprite2D nodes
   - Export 3D scenes as MeshLibrary resources for GridMap
   - Save scenes with options for creating variants
+  - Instance reusable scenes and duplicate supported local subtrees with atomic saves and previews
+  - Attach scripts, assign node references and configure the main scene
+  - Preview transactional property, hierarchy, group and signal edits with content-hash guards
+- **Resource Authoring**: Inspect, create, and edit `.tres`/`.res` resources using validated typed properties
 - **UID Management** (for Godot 4.4+):
   - Get UID for specific files
   - Update UID references by resaving resources
 
 ## Requirements
 
-- [Godot Engine](https://godotengine.org/download) installed on your system
+- [Godot Engine 4](https://godotengine.org/download) installed on your system
 - Node.js (>=22.14.0) and npm
 - An AI agent that supports MCP
 
@@ -161,6 +175,7 @@ Add to your Cline MCP settings file (`~/Library/Application Support/Code/User/gl
         "get_godot_version",
         "list_projects",
         "get_project_info",
+        "get_performance_monitors",
         "create_scene",
         "add_node",
         "load_sprite",
@@ -380,6 +395,20 @@ Scene node paths use `root`, `.`, or a path beneath the root such as `root/Playe
 
 `modify_scene` operations are `set_properties` (`properties`), `rename_node` (`newName`), `reparent_node` (`parentNodePath`), `remove_node`, `connect_signal` / `disconnect_signal` (`signal`, `targetNodePath`, `method`), and `add_group` / `remove_group` (`group`). Every operation includes `nodePath`. Paths after a rename/reparent refer to the updated hierarchy. Reparenting preserves the transform; groups and signal connections persist after reload. Signal connections check declared argument counts/types and built-in or registered script inheritance; untyped signal arguments cannot be assigned to a typed method parameter without a compatible declaration.
 
+`instance_scene` and `duplicate_node` are available both as dedicated tools and as `modify_scene` operations. Both take `newName`; `nodePath` identifies the local parent for instancing and the source subtree for duplication. Instancing also takes `instanceScenePath`, preserves the scene instance and its ownership, and rejects dependencies back to the edited scene. Duplication creates a sibling and preserves scripts, groups, internal NodePaths/exported Node references and persistent signals. It refuses the scene root, subtrees containing scene instances or unique-name nodes, links outside the subtree, embedded resource references and references nested in collections. External file resources may be shared by the copy. Names must be unique among siblings. Dedicated tools accept `dryRun` and `expectedHash`.
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "scenePath": "res://level.tscn",
+  "dryRun": true,
+  "operations": [
+    {"op": "instance_scene", "nodePath": ".", "newName": "Player", "instanceScenePath": "res://player.tscn"},
+    {"op": "duplicate_node", "nodePath": "SpawnPoint", "newName": "SecondSpawn"}
+  ]
+}
+```
+
 Preview first, then pass its `sourceHash` as `expectedHash` when applying:
 
 ```json
@@ -398,11 +427,116 @@ Preview first, then pass its `sourceHash` as `expectedHash` when applying:
 
 Transactional edits refuse inherited scenes, nodes inside scene instances, scene-root structural edits, and changes to ownership or script properties. Rename/reparent update resolvable relative NodePaths; removal refuses surviving node references and persistent connections into the removed subtree. Structural edits refuse unresolved/absolute paths, embedded resources and references nested in collections rather than guessing their meaning. Script string literals and dynamically computed paths cannot be rewritten: validate and play-test after changing node paths. Instantiation, resource loading, autoloads, constructors and setters can execute project code; these tools are blocked by `GODOT_READ_ONLY` and do not sandbox those side effects.
 
+## Resource inspection and authoring
+
+| Tool | Behavior |
+| --- | --- |
+| `get_resource_info` | Reads stored resource properties with typed values and `sourceHash`. `maxProperties` defaults to 50 (maximum 200). |
+| `create_resource` | Creates an instantiable built-in `className` at `resourcePath` (`.tres`/`.res`), optionally with `properties`. Refuses existing files; the parent directory must exist. Supports `dryRun`. |
+| `set_resource_properties` | Sets 1–100 stored `properties` on an existing resource. Supports `dryRun` and `expectedHash`, preserves its UID/script, verifies a reload and saves through atomic replacement. |
+
+These tools support the same primitive, numeric vector/color, NodePath and external Resource values as scene property editing. They exclude scripts and PackedScenes, custom resource creation, collection/transform writes, script/path/metadata changes and embedded-resource editing. Inspection, previews and setters may execute project code; all three require execution permission and are blocked by `GODOT_READ_ONLY`. Previews leave the target file untouched, but do execute resource loading/setters. An independently created resource is never overwritten by `create_resource`.
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "resourcePath": "res://shapes/player.tres",
+  "className": "RectangleShape2D",
+  "properties": {"size": {"type": "Vector2", "value": [24, 48]}},
+  "dryRun": true
+}
+```
+
 ## Runtime inspection and frame stepping
 
 `get_node_properties` reads 1–50 explicitly named `properties` from a live `nodePath`, returning typed, bounded values and the current pause state. It executes getters and is blocked in read-only mode. Collections are limited to 100 entries and six nesting levels, with a shared traversal budget of 1000 values per response; unsupported values are labeled rather than converted to misleading strings. Requests whose encoded response exceeds 60 KiB fail with an actionable limit error.
 
 For gameplay checks, start a debug session, send input, pause it with `set_debug_pause`, record properties, call `step_frames` with `frames` (1–120) and `kind` (`physics`, default, or `process`), and inspect again or capture a screenshot. Stepping requires a paused session, resumes through the requested frame boundaries, and leaves it paused. Process stepping may advance physics too, and physics stepping may advance process frames. Nodes that ignore pause, wall-clock timers, asynchronous work and external systems continue to follow Godot's behavior; this is not a deterministic replay engine. Use the returned session handle on modern MCP clients.
+
+`get_performance_monitors` reads the current debug session's FPS, process/physics times (milliseconds), memory, object/node/resource counts, draw calls and active physics bodies. Each monitor includes `unit` and `available`, with null values for unavailable headless render metrics. `sampledAtMs` is monotonic engine uptime, not a calendar timestamp. Some engine monitors update only once per second; an early zero does not prove that the measured work is absent. This tool works while paused and in read-only mode. It provides snapshots; use `sample_performance` below for multi-frame series and summaries. Function-level profiling is not supported.
+
+## Project configuration
+
+| Tool | Behavior |
+| --- | --- |
+| `get_project_setting` | Reads a stored `setting` expression, `stored` and `sourceHash` directly from `project.godot`. This is serialized configuration, not an effective value with defaults/feature tags/`override.cfg` applied. |
+| `set_project_setting` / `remove_project_setting` | Sets a typed `value` or removes a stored override. Use `section/key` paths, for example `display/window/size/viewport_width`. Input/autoload writes use their dedicated tools. |
+| `register_autoload` / `unregister_autoload` | Adds/removes a `name` and existing `resourcePath` (`.gd`, `.cs`, `.tscn`, `.scn`). `singleton` defaults to true. Replacing a different registration requires `replace:true`. New entries append after existing autoloads. |
+| `get_input_actions` | Reads configured action bindings; optional `action` filters the result. `limit` defaults to 100 (maximum 200). Engine defaults and runtime InputMap changes are excluded. |
+| `set_input_action` / `remove_input_action` | Creates/replaces an `action` and its complete `events` list, or removes its configured entry. Omitted `deadzone` preserves an existing value; new actions default to 0.5. An empty event list clears configured bindings. Removing a built-in override restores the engine default on next launch rather than disabling it. |
+
+All configuration writers accept `dryRun` and `expectedHash`. They preserve unrelated entries, multiline values, comments, line endings and existing autoload order; saves are atomic and serialized with `set_main_scene`. A preview returns the old file's `sourceHash` for the subsequent `expectedHash`. Changes affect future launches; already-running games and unsaved editor state are unchanged.
+
+Settings accept primitives, bounded JSON arrays/dictionaries and explicit vector/color/NodePath/StringName/PackedStringArray tags. Built-in types are checked against the installed engine, including feature-tag base types; engine ranges/enums and full gameplay suitability are not comprehensively validated. Values are limited to six nested levels and 1000 items. Resource/Object setting values are unsupported. `project.godot` is limited to 1 MiB; ambiguous duplicate sections/keys, unbalanced syntax and invalid UTF-8 are refused. Malformed Variant syntax is rejected before saving.
+
+Autoload registration checks file existence/confinement and built-in class-name conflicts. It does not compile the script, verify Node inheritance/compiled C# assemblies or resolve conflicts with project-defined global classes. Use validation and a fresh debug session to verify runtime compatibility. Isolated engine serialization/config parsing starts no project autoloads and does not install project files. Parsed config tools require execution permission; `GODOT_READ_ONLY` permits only the raw `get_project_setting` query among these tools.
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "action": "move_right",
+  "deadzone": 0.2,
+  "events": [
+    {"kind": "key", "key": "D"},
+    {"kind": "joypad_motion", "axis": 0, "axisValue": 1}
+  ],
+  "dryRun": true
+}
+```
+
+Pass this to `set_input_action`. Bindings support `key` (choose exactly one `key`, numeric `keycode` or `physicalKeycode`), `mouse_button` (`button` 1–9), `joypad_button` (`button` 0–127) and `joypad_motion` (`axis` 0–9, `axisValue` -1 or 1). `device` defaults to -1 (all devices). Key/mouse bindings support `ctrl`, `shift`, `alt`, `meta` and `commandOrControl`; the last enables Godot's platform-specific Command/Control mapping and cannot be combined with explicit ctrl/meta. Up to 32 events are accepted. Reads mark unsupported event shapes/classes rather than silently converting them, including non-default key locations, mouse double-clicks and fractional controller-axis bindings; their original bytes survive unrelated edits. Action/autoload names use identifier syntax.
+
+Examples for other writers:
+
+```json
+{"projectPath":"/path/to/project","setting":"display/window/size/viewport_width","value":1280,"dryRun":true}
+```
+
+```json
+{"projectPath":"/path/to/project","name":"GameState","resourcePath":"res://game_state.gd","singleton":true,"dryRun":true}
+```
+
+## Frame-based sampling
+
+Pause a debug session with `set_debug_pause`, then call `sample_performance` or `sample_node_properties`. Both capture an initial value, advance `intervalFrames` between subsequent samples, and finish paused. Defaults are 30 samples, one physics frame per interval and `timeoutMs:60000`; `kind:"process"` selects process-frame boundaries.
+
+```json
+{"samples":60,"intervalFrames":1,"monitors":["physicsTime","staticMemory","nodeCount"]}
+```
+
+```json
+{"nodePath":"Player","properties":["velocity","health"],"samples":30,"intervalFrames":2}
+```
+
+Pass the first example to `sample_performance` and the second to `sample_node_properties`, adding `sessionId` on modern clients. Performance sampling accepts the monitor names returned by `get_performance_monitors`; omitting `monitors` selects all. Property sampling reads 1–10 named properties on one node and rejects incomplete/unsupported encoded values. Each sample includes monotonic `sampledAtMs`, global engine process/physics-frame counters and `values`. `advancedFrames` counts resumed callback boundaries; global engine counters also include frames spent paused.
+
+Summaries include minimum, maximum, mean, nearest-rank p50/p95, first/last and delta for numeric series. Vectors/colors/quaternions have component summaries. Unavailable monitors have null values and an unavailable summary; nonnumeric properties report the count of transitions instead. Arithmetic overflow is labeled, with affected summary values null. Monitor units and renderer availability accompany performance series.
+
+Limits are 2–120 samples, 1–120 frames per interval, 1200 total advanced frames, 40 KiB of raw evidence and 60 KiB including summaries. The global deadline is at most 600000 ms. Sampling advances project code and executes getters, so both tools are blocked by read-only policy. Invalid fields are rejected before stepping. Cancellation/timeouts stop the debug game and clear IPC so a pending sample cannot continue into another session. Other failures leave the session paused. These are controlled frame-based observations, not passive sampling, a deterministic simulator or a function-level profiler; slowly refreshed engine monitors may repeat values.
+
+## Reusable gameplay scenarios
+
+`run_playtest` starts a fresh temporary debug session in the selected session, pauses it, executes ordered `steps`, and always stops its game before returning. It replaces any preceding game in that session. Successful runs on modern clients return an idle `sessionId`; use it for retained logs or release it with `close_session`. Newly allocated handles are released automatically on failure; evidence remains in the returned report. Existing sessions in other handles are unaffected. Project files remain unchanged by the tool; game scripts retain their normal filesystem side effects.
+
+Steps are `input` (`event`, using `simulate_input` fields), `frames` (`frames`, optional `kind`), `assert` (`nodePath`, `property`, `expected`, optional `comparison`/`tolerance`) and `screenshot`. Input events are queued while paused and flushed when the next frame step resumes, before its node callbacks. Follow input with a frame step before assertions, screenshots or the end of the sequence. Multiple queued events retain their order.
+
+Comparisons are `eq` (default), `ne`, numeric `lt`/`lte`/`gt`/`gte`, and `approx` (recursive numeric tolerance, default 0.00001). Vectors/colors use the explicit typed shapes returned by `get_node_properties`. Truncated or unsupported values cannot pass an assertion. At least one assertion is required. The result contains per-step evidence, overall `passed`, diagnostics and inline screenshot images; failed assertions return `isError:true`. Operational failures report `RUNTIME_ERROR`, `TIMEOUT` or `OUTPUT_LIMIT` with completed-step evidence. Cancellation stops the game before propagating the cancelled request.
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "scenePath": "res://player.tscn",
+  "steps": [
+    {"op": "input", "event": {"kind": "action", "action": "jump", "pressed": true}},
+    {"op": "frames", "frames": 10},
+    {"op": "assert", "nodePath": ".", "property": "health", "comparison": "gt", "expected": 0},
+    {"op": "input", "event": {"kind": "action", "action": "jump", "pressed": false}},
+    {"op": "frames", "frames": 1}
+  ]
+}
+```
+
+Limits: 100 steps, 50 assertions, 120 frames per step/1200 total, three screenshots and 30 KiB of assertion evidence. `timeoutMs` defaults to 60000 (maximum 600000). `headless` defaults to true; screenshots require `headless:false` and a display. Frame boundaries improve repeatability but do not guarantee deterministic gameplay, fixed startup-frame counts or paused external systems. Input recording, stress testing and screenshot baseline comparison are not provided yet.
 
 ## Targeted validation and diagnostics
 
@@ -414,13 +548,13 @@ Validation, finite test/export runs and game debug output include `diagnostics` 
 
 The official MCP v2 server supports `2026-07-28` over stdio, including discovery and per-request metadata, while retaining `2025-11-25` initialization compatibility. Server instructions guide the workflow and tool annotations identify read and mutation operations.
 
-For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree, property inspection, stepping and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
+For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree, property inspection, performance snapshots, sampling, stepping and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
 
 ## Optional execution policy
 
 Set `GODOT_ALLOWED_ROOTS` to permitted project/search directories, separated by the platform path-list delimiter (`:` on macOS/Linux, `;` on Windows). Canonical paths are checked, including symlinks. With no value, project selection remains unrestricted.
 
-Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries and process cleanup while rejecting resource writes and project execution, including tests and screenshots that start scenes. Existing runtime inspection is allowed. These controls restrict MCP requests; they are not an OS sandbox for project scripts. Hosts should retain their tool-approval controls.
+Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries and process cleanup while rejecting resource writes and project execution, including tests and screenshots that start scenes. For an existing session, runtime-tree and performance-snapshot reads are allowed. Property getters, sampling, input, pause changes and screenshots require execution permission and are blocked. Configuration/resource parsing that invokes Godot is also blocked; raw project-setting reads remain allowed. These controls restrict MCP requests; they are not an OS sandbox for project scripts. Hosts should retain their tool-approval controls.
 
 ### Windows and WSL
 

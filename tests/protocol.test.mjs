@@ -139,6 +139,16 @@ test('official modern client uses explicit independent sessions and rejects stal
     });
     assert.notEqual(stepped.isError, true, JSON.stringify(stepped));
     assert.equal(stepped.structuredContent.paused, true);
+    assert.equal((await call('sample_performance', { samples: 2 })).isError, true);
+    for (const [tool, parameters] of [
+      ['sample_performance', { monitors: ['nodeCount'] }],
+      ['sample_node_properties', { nodePath: '.', properties: ['position'] }],
+    ]) {
+      const sampled = await call(tool, { sessionId: sessions[0], samples: 2, ...parameters });
+      assert.notEqual(sampled.isError, true, JSON.stringify(sampled));
+      assert.equal(sampled.structuredContent.sampleCount, 2);
+      assert.equal(sampled.structuredContent.paused, true);
+    }
     assert.equal(
       JSON.parse((await call('get_runtime_tree', { sessionId: sessions[1] })).content[0].text)
         .paused,
@@ -157,6 +167,28 @@ test('official modern client uses explicit independent sessions and rejects stal
       true,
     );
     await call('close_session', { sessionId: sessions[1] });
+    const played = await call('run_playtest', {
+      projectPath: root,
+      steps: [
+        {
+          op: 'assert',
+          nodePath: '.',
+          property: 'position',
+          expected: { type: 'Vector2', value: [0, 0] },
+        },
+      ],
+    });
+    assert.notEqual(played.isError, true, JSON.stringify(played));
+    const playtestId = JSON.parse(played.content.at(-1).text).sessionId;
+    assert.equal(played.structuredContent.passed, true);
+    assert.equal(played.structuredContent.stopped, true);
+    const finalLogs = await call('get_debug_output', { sessionId: playtestId });
+    assert.equal(
+      finalLogs.structuredContent?.running ?? JSON.parse(finalLogs.content[0].text).running,
+      false,
+    );
+    await call('close_session', { sessionId: playtestId });
+    assert.equal((await call('get_debug_output', { sessionId: playtestId })).isError, true);
   } finally {
     await client.close();
     await rm(root, { recursive: true, force: true });
