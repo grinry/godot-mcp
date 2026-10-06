@@ -1,5 +1,13 @@
 # @grinry/godot-mcp
 
+## 0.4.0
+
+### Minor Changes
+
+- 59e7da1: Add atomic scene instancing and duplication, typed resource authoring, frame-based gameplay checks with screenshots, and runtime performance snapshots.
+- 9c768d0: Add PNG screenshot baseline assertions to playtests with configurable tolerances and inline visual diffs. Reference images are read without automatic updates.
+- 59e7da1: Add previewable project configuration and input bindings, plus frame-based performance and property sampling with summaries.
+
 ## 0.3.0
 
 ### Minor Changes
