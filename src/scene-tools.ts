@@ -5,10 +5,22 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import { nodePath } from './authoring-tools.js';
 import { type OperationRunner, requireSuccess } from './operation-runner.js';
 import { projectFile, projectRoot } from './project-paths.js';
+import { validateResourceValues } from './resource-tools.js';
 import type { ToolSpecification } from './tool-types.js';
 
 const string = { type: 'string' };
 const scene = { projectPath: string, scenePath: string };
+const transactionOutput = {
+  type: 'object',
+  properties: {
+    scenePath: string,
+    sourceHash: string,
+    saved: { type: 'boolean' },
+    success: { type: 'boolean' },
+    operations: { type: 'array', items: { type: 'object' } },
+  },
+  required: ['scenePath', 'sourceHash', 'saved', 'success', 'operations'],
+};
 const operation = {
   type: 'object',
   properties: {
@@ -23,6 +35,8 @@ const operation = {
         'disconnect_signal',
         'add_group',
         'remove_group',
+        'instance_scene',
+        'duplicate_node',
       ],
     },
     nodePath: string,
@@ -33,11 +47,46 @@ const operation = {
     targetNodePath: string,
     method: string,
     group: string,
+    instanceScenePath: string,
   },
   required: ['op', 'nodePath'],
   additionalProperties: false,
 };
 export const sceneTools: ToolSpecification[] = [
+  ...(['instance_scene', 'duplicate_node'] as const).map(
+    (name): ToolSpecification => ({
+      name,
+      access: 'execute',
+      session: 'none',
+      outputSchema: transactionOutput,
+      description:
+        name === 'instance_scene'
+          ? 'Instance a saved scene under a local parent and save atomically. Supports dryRun and expectedHash; refuses recursive dependencies.'
+          : 'Duplicate a local subtree as a sibling with a newName and save atomically. Refuses instance contents and uncertain references. Supports dryRun and expectedHash.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...scene,
+          nodePath: {
+            type: 'string',
+            description:
+              name === 'instance_scene' ? 'Local parent path' : 'Local subtree to duplicate',
+          },
+          newName: string,
+          ...(name === 'instance_scene' ? { instanceScenePath: string } : {}),
+          dryRun: { type: 'boolean' },
+          expectedHash: string,
+        },
+        required: [
+          'projectPath',
+          'scenePath',
+          'nodePath',
+          'newName',
+          ...(name === 'instance_scene' ? ['instanceScenePath'] : []),
+        ],
+      },
+    }),
+  ),
   {
     name: 'get_scene_info',
     access: 'execute',
@@ -74,10 +123,11 @@ export const sceneTools: ToolSpecification[] = [
   },
   {
     name: 'modify_scene',
+    annotations: { destructiveHint: true },
     access: 'execute',
     session: 'none',
     description:
-      'Apply up to 100 scene operations in order and save once, or preview with dryRun. Supports properties, remove/rename/reparent, persistent signals and groups. Executes constructors. Refuses inherited/instanced edits and removal of referenced nodes. expectedHash guards stale previews.',
+      'Apply up to 100 scene operations in order and save once, or preview with dryRun. Supports instancing, duplication, properties, remove/rename/reparent, persistent signals and groups. Executes constructors. Refuses inherited/instanced edits and uncertain references. expectedHash guards stale previews.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -100,6 +150,8 @@ const operations = new Set([
   'disconnect_signal',
   'add_group',
   'remove_group',
+  'instance_scene',
+  'duplicate_node',
 ]);
 function identifier(value: unknown, label: string) {
   if (typeof value !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(value))
@@ -123,7 +175,7 @@ function validateOperations(value: unknown) {
       )
         throw new Error('properties must contain 1 to 100 entries');
       result.properties = entry.properties;
-    } else if (entry.op === 'rename_node') {
+    } else if (['rename_node', 'instance_scene', 'duplicate_node'].includes(entry.op)) {
       if (
         typeof entry.newName !== 'string' ||
         !entry.newName ||
@@ -133,6 +185,7 @@ function validateOperations(value: unknown) {
       )
         throw new Error('Invalid newName');
       result.newName = entry.newName;
+      if (entry.op === 'instance_scene') result.instanceScenePath = entry.instanceScenePath;
     } else if (entry.op === 'reparent_node') result.parentNodePath = nodePath(entry.parentNodePath);
     else if (entry.op.endsWith('_signal')) {
       result.signal = identifier(entry.signal, 'signal');
@@ -213,21 +266,30 @@ async function runSceneTool(
       throw new Error('dryRun must be boolean');
     if (args.expectedHash !== undefined && args.expectedHash !== sourceHash)
       throw new Error('Scene changed since preview; inspect it again');
-    params.operations = validateOperations(
+    const validated = validateOperations(
       name === 'set_node_properties'
         ? [{ op: 'set_properties', nodePath: args.nodePath, properties: args.properties }]
-        : args.operations,
+        : name === 'instance_scene' || name === 'duplicate_node'
+          ? [
+              {
+                op: name,
+                nodePath: args.nodePath,
+                newName: args.newName,
+                instanceScenePath: args.instanceScenePath,
+              },
+            ]
+          : args.operations,
     );
-    // Resource paths nested in typed resource values must pass the same confinement check.
-    const visit = async (value: unknown, depth = 0): Promise<void> => {
-      if (depth > 16) throw new Error('Property nesting exceeds limit');
-      if (value && typeof value === 'object') {
-        if ('type' in value && value.type === 'Resource' && 'path' in value)
-          await projectFile(root, value.path);
-        for (const child of Object.values(value)) await visit(child, depth + 1);
+    for (const entry of validated) {
+      if (entry.op === 'instance_scene') {
+        entry.instanceScenePath = (
+          await projectFile(root, entry.instanceScenePath, ['.tscn', '.scn'])
+        ).resource;
       }
-    };
-    await visit(params.operations);
+    }
+    params.operations = validated;
+    // Resource paths nested in typed resource values must pass the same confinement check.
+    await validateResourceValues(root, params.operations);
   }
   if (Buffer.byteLength(JSON.stringify(params)) > 60000)
     throw new Error('Scene request exceeds 60 KiB');

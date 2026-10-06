@@ -102,7 +102,7 @@ func all_nodes():
 
 # Snapshot actual targets before moving a node, then recompute relative paths.
 # Refuse unresolved NodePaths and nested reference collections: guessing is lossy.
-func references(nodes):
+func references(nodes, allow_external_resources = false):
     var paths = []
     var links = []
     for node in nodes:
@@ -119,8 +119,10 @@ func references(nodes):
                     return {"ok": false, "error": "Structural edits refuse unresolved NodePath: " + str(info.name)}
                 paths.append({"node": node, "property": info.name, "target": target, "subnames": str(value.get_concatenated_subnames())})
             elif value is Node:
-                links.append({"node": node, "target": value})
+                links.append({"node": node, "target": value, "property": info.name})
             elif value is Resource:
+                if allow_external_resources and value.resource_path.begins_with("res://") and not "::" in value.resource_path:
+                    continue
                 return {"ok": false, "error": "Structural edits refuse embedded resource references; edit properties separately"}
             elif value is Array or value is Dictionary:
                 if contains_reference(value):
@@ -150,6 +152,85 @@ func contains_reference(value, depth = 0):
 
 func inside(node, ancestor):
     return node == ancestor or ancestor.is_ancestor_of(node)
+
+# Never introduce a dependency back to the scene being edited.
+func check_instance_dependencies(path, target, seen = {}):
+    if path == target:
+        return "Scene instancing would create a recursive dependency"
+    if seen.has(path):
+        return ""
+    if seen.size() >= 4096:
+        return "Scene dependency limit exceeded"
+    seen[path] = true
+    for dependency in ResourceLoader.get_dependencies(path):
+        var fields = dependency.split("::")
+        var resource_path = fields[fields.size() - 1]
+        if not resource_path.begins_with("res://"):
+            return "Cannot resolve instance dependency"
+        var error = check_instance_dependencies(resource_path, target, seen)
+        if error != "":
+            return error
+    return ""
+
+func duplicate_subtree(node, new_name, nodes):
+    if node == scene_root:
+        return "Cannot duplicate the scene root"
+    var parent = node.get_parent()
+    if parent.get_node_or_null(NodePath(new_name)) != null:
+        return "Sibling name already exists"
+    var subtree = nodes.filter(func(child): return inside(child, node))
+    for child in subtree:
+        if not local_node(child):
+            return "Duplication refuses subtrees containing scene instances"
+        if child.unique_name_in_owner:
+            return "Duplication refuses unique-name nodes; duplicating them can redirect %Node references"
+    var refs = references(subtree, true)
+    if not refs.ok:
+        return refs.error
+    for reference in refs.paths + refs.links:
+        if not reference.target is Node or not inside(reference.target, node):
+            return "Duplication refuses references/connections outside the subtree"
+    # Rebuild persistent signals ourselves so none silently target the original.
+    var copy = node.duplicate(Node.DUPLICATE_GROUPS | Node.DUPLICATE_SCRIPTS)
+    if copy == null:
+        return "Cannot duplicate subtree; scripts must allow construction without arguments"
+    copy.name = new_name
+    parent.add_child(copy)
+    for child in subtree:
+        var mapped = copy.get_node_or_null(node.get_path_to(child))
+        if mapped == null or mapped.get_script() != child.get_script():
+            return "Duplication did not preserve the subtree or its scripts"
+        mapped.owner = scene_root
+    for reference in refs.paths:
+        var mapped = copy.get_node(node.get_path_to(reference.node))
+        var target = copy.get_node(node.get_path_to(reference.target))
+        var path = str(mapped.get_path_to(target))
+        if reference.subnames != "":
+            path += ":" + reference.subnames
+        mapped.set(reference.property, NodePath(path))
+        if mapped.get(reference.property) != NodePath(path):
+            return "Cannot preserve duplicated NodePath"
+    for reference in refs.links:
+        if reference.has("property"):
+            var mapped = copy.get_node(node.get_path_to(reference.node))
+            var target = copy.get_node(node.get_path_to(reference.target))
+            mapped.set(reference.property, target)
+            if mapped.get(reference.property) != target:
+                return "Cannot preserve duplicated node reference"
+    for child in subtree:
+        var mapped = copy.get_node(node.get_path_to(child))
+        for info in child.get_signal_list():
+            for connection in child.get_signal_connection_list(info.name):
+                if not (connection.flags & CONNECT_PERSIST):
+                    continue
+                var target = copy.get_node(node.get_path_to(connection.callable.get_object()))
+                var callback = Callable(target, connection.callable.get_method())
+                if connection.callable.get_unbound_arguments_count() > 0:
+                    callback = callback.unbind(connection.callable.get_unbound_arguments_count())
+                callback = callback.bindv(connection.callable.get_bound_arguments())
+                if not mapped.is_connected(info.name, callback) and mapped.connect(info.name, callback, connection.flags) != OK:
+                    return "Cannot preserve duplicated persistent signal"
+    return ""
 
 func compatible_argument(source, target):
     if target.type == TYPE_NIL:
@@ -181,6 +262,27 @@ func apply_operation(operation, nodes):
     if node == null or not local_node(node):
         return "Node is missing or belongs to an instanced scene"
     match operation.op:
+        "instance_scene":
+            if node.get_node_or_null(NodePath(operation.newName)) != null:
+                return "Sibling name already exists"
+            var error = check_instance_dependencies(operation.instanceScenePath, scene_root.scene_file_path)
+            if error != "":
+                return error
+            var checked = Safety.load_scene(operation.instanceScenePath)
+            if not checked.ok:
+                return checked.error
+            var instance = checked.scene.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+            if instance == null:
+                return "Cannot instantiate scene"
+            instance.name = operation.newName
+            node.add_child(instance)
+            instance.owner = scene_root
+            operation.createdNodePath = str(scene_root.get_path_to(instance))
+        "duplicate_node":
+            var error = duplicate_subtree(node, operation.newName, nodes)
+            if error != "":
+                return error
+            operation.createdNodePath = str(scene_root.get_path_to(node.get_parent().get_node(NodePath(operation.newName))))
         "set_properties":
             for key in operation.properties:
                 if key in ["script", "owner", "name", "scene_file_path", "unique_name_in_owner"] or str(key).begins_with("metadata/"):
@@ -283,6 +385,9 @@ func modify_scene(scene, params):
             fail("Operation " + str(changes.size()) + ": " + error)
             return
         changes.append(operation)
+    if all_nodes().is_empty():
+        fail("Scene exceeds 2000 nodes")
+        return
     for reference in original_scripts:
         if is_instance_valid(reference.node) and reference.node.get_script() != reference.script:
             fail("Operation unexpectedly changed a script reference")

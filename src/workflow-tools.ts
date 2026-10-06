@@ -20,6 +20,7 @@ const tool = (
   access: name === 'list_project_files' ? 'read' : 'execute',
   session: name === 'run_scene' ? 'start' : 'none',
   name,
+  annotations: { destructiveHint: name === 'export_project' },
   description,
   inputSchema: { type: 'object', properties, required },
 });

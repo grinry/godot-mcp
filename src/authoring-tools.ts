@@ -1,9 +1,9 @@
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { type OperationRunner, requireSuccess } from './operation-runner.js';
+import { patchProjectConfig, saveProjectConfig, withProjectConfig } from './project-config.js';
 import { projectFile, projectRoot } from './project-paths.js';
 import type { ToolSpecification } from './tool-types.js';
 
@@ -84,40 +84,20 @@ export function nodePath(value: unknown) {
   return value;
 }
 
-export async function setMainScene(root: string, resource: string) {
-  const file = await projectFile(root, 'project.godot');
-  const original = await readFile(file.path, 'utf8');
-  const newline = original.includes('\r\n') ? '\r\n' : '\n';
-  const lines = original.split(/\r?\n/);
-  const applications = lines.flatMap((line, index) =>
-    /^\s*\[application\]\s*$/.test(line) ? [index] : [],
+export async function setMainScene(root: string, resource: string, signal?: AbortSignal) {
+  await withProjectConfig(root, (snapshot) =>
+    saveProjectConfig(
+      snapshot,
+      patchProjectConfig(
+        snapshot.original,
+        'application',
+        'run/main_scene',
+        JSON.stringify(resource),
+      ),
+      false,
+      signal,
+    ),
   );
-  if (applications.length > 1) throw new Error('Duplicate application sections');
-  const setting = `run/main_scene=${JSON.stringify(resource)}`;
-  if (!applications.length) lines.push('[application]', setting, '');
-  else {
-    const start = applications[0] + 1;
-    let end = start;
-    while (end < lines.length && !/^\s*\[/.test(lines[end])) end++;
-    const existing = lines.flatMap((line, index) =>
-      index >= start && index < end && /^\s*run\/main_scene\s*=/.test(line) ? [index] : [],
-    );
-    if (existing.length > 1) throw new Error('Duplicate main-scene settings');
-    if (existing.length) lines[existing[0]] = setting;
-    else lines.splice(start, 0, setting);
-  }
-  const temporary = `${file.path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, lines.join(newline), {
-      flag: 'wx',
-      mode: (await stat(file.path)).mode,
-    });
-    if ((await readFile(file.path, 'utf8')) !== original)
-      throw new Error('Project settings changed concurrently');
-    await rename(temporary, file.path);
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 export async function handleAuthoringTool(
@@ -164,7 +144,7 @@ export async function handleAuthoringTool(
     const scene = await projectFile(root, args.scenePath, ['.tscn', '.scn']);
     if (name === 'set_main_scene') {
       signal?.throwIfAborted();
-      await setMainScene(root, scene.resource);
+      await setMainScene(root, scene.resource, signal);
       return {
         content: [
           { type: 'text', text: JSON.stringify({ success: true, scenePath: scene.resource }) },

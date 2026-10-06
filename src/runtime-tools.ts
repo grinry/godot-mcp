@@ -14,9 +14,10 @@ const tool = (
   required: string[],
 ): ToolSpecification => ({
   name,
+  annotations: { destructiveHint: name === 'quit_godot' },
   description,
   inputSchema: { type: 'object', properties, required },
-  access: ['get_runtime_tree', 'view_log'].includes(name)
+  access: ['get_runtime_tree', 'view_log', 'get_performance_monitors'].includes(name)
     ? 'read'
     : ['close_session', 'quit_godot'].includes(name)
       ? 'control'
@@ -26,6 +27,35 @@ const tool = (
 const project = { type: 'string' };
 const scene = { type: 'string' };
 export const runtimeTools: ToolSpecification[] = [
+  {
+    ...tool(
+      'get_performance_monitors',
+      'Read timestamped runtime Performance monitor values with units. Render metrics are unavailable under headless; this is a snapshot, not a function-level profiler.',
+      {},
+      [],
+    ),
+    outputSchema: {
+      type: 'object',
+      properties: {
+        monitors: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              value: { anyOf: [{ type: 'number' }, { type: 'null' }] },
+              unit: { type: 'string' },
+              available: { type: 'boolean' },
+            },
+            required: ['name', 'value', 'unit', 'available'],
+          },
+        },
+        sampledAtMs: { type: 'number' },
+        paused: { type: 'boolean' },
+      },
+      required: ['monitors', 'sampledAtMs', 'paused'],
+    },
+  },
   tool(
     'get_runtime_tree',
     'Inspect the live debug session scene tree without changing pause state. Returns bounded node paths, classes and script paths.',
@@ -191,6 +221,8 @@ export async function handleRuntimeTool(
       throw new Error('Invalid runtime tree limits');
     return text(await session.live.request('tree', { maxDepth, maxNodes }, signal));
   }
+  if (name === 'get_performance_monitors')
+    return text(await session.live.request('performance', {}, signal));
   if (name === 'get_node_properties') {
     const path = nodePath(args.nodePath);
     if (

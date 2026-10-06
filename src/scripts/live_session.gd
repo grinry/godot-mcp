@@ -5,6 +5,7 @@ const Codec = preload("variant_codec.gd")
 var directory = ""
 var token = ""
 var busy = false
+var queued_input = []
 
 func _initialize():
     call_deferred("start_session")
@@ -79,6 +80,107 @@ func reply(id, ok, error = "", extra = {}):
         response = {"id": id, "ok": false, "error": "Response exceeds 60 KiB; request fewer properties"}
     write_json(directory.path_join("response-" + id + ".json"), response)
     busy = false
+
+func advance_paused(count, kind):
+    # Each requested boundary is counted after the corresponding node callbacks.
+    if kind == "physics": await physics_frame
+    else: await process_frame
+    paused = false
+    for event in queued_input: Input.parse_input_event(event)
+    queued_input.clear()
+    Input.flush_buffered_events()
+    for index in count:
+        if kind == "physics": await physics_frame
+        else: await process_frame
+    paused = true
+
+func performance_snapshot():
+    var definitions = [
+        ["fps", Performance.TIME_FPS, "frames/s", 1.0, false],
+        ["processTime", Performance.TIME_PROCESS, "ms", 1000.0, false],
+        ["physicsTime", Performance.TIME_PHYSICS_PROCESS, "ms", 1000.0, false],
+        ["staticMemory", Performance.MEMORY_STATIC, "bytes", 1.0, false],
+        ["nodeCount", Performance.OBJECT_NODE_COUNT, "count", 1.0, false],
+        ["objectCount", Performance.OBJECT_COUNT, "count", 1.0, false],
+        ["resourceCount", Performance.OBJECT_RESOURCE_COUNT, "count", 1.0, false],
+        ["orphanNodeCount", Performance.OBJECT_ORPHAN_NODE_COUNT, "count", 1.0, false],
+        ["drawCalls", Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME, "count", 1.0, true],
+        ["renderedObjects", Performance.RENDER_TOTAL_OBJECTS_IN_FRAME, "count", 1.0, true],
+        ["videoMemory", Performance.RENDER_VIDEO_MEM_USED, "bytes", 1.0, true],
+        ["textureMemory", Performance.RENDER_TEXTURE_MEM_USED, "bytes", 1.0, true],
+        ["physics2dObjects", Performance.PHYSICS_2D_ACTIVE_OBJECTS, "count", 1.0, false],
+        ["physics3dObjects", Performance.PHYSICS_3D_ACTIVE_OBJECTS, "count", 1.0, false],
+    ]
+    var monitors = []
+    for definition in definitions:
+        var available = not (definition[4] and DisplayServer.get_name() == "headless")
+        var value = Performance.get_monitor(definition[1]) * definition[3] if available else null
+        monitors.append({"name": definition[0], "value": value, "unit": definition[2], "available": available})
+    return {"monitors": monitors, "sampledAtMs": Time.get_ticks_msec(), "paused": paused}
+
+func incomplete(value):
+    if value is Dictionary:
+        if value.get("truncated", false) == true or value.get("unsupported", false) == true: return true
+        for child in value.values():
+            if incomplete(child): return true
+    elif value is Array:
+        for child in value:
+            if incomplete(child): return true
+    return false
+
+func sample_properties(params):
+    if not is_instance_valid(current_scene): return {"ok": false, "error": "No current scene"}
+    var path = params.nodePath
+    if path == "root": path = "."
+    elif path.begins_with("root/"): path = path.trim_prefix("root/")
+    var node = current_scene.get_node_or_null(NodePath(path))
+    if node == null: return {"ok": false, "error": "Runtime node not found"}
+    var available = {}
+    for info in node.get_property_list(): available[str(info.name)] = true
+    var values = {}
+    var limits = Codec.budget()
+    for property in params.properties:
+        if not available.has(property): return {"ok": false, "error": "Unknown property: " + property}
+    for property in params.properties:
+        var value = Codec.encode(node.get(property), 0, limits)
+        if incomplete(value): return {"ok": false, "error": "Cannot sample truncated or unsupported property: " + property}
+        values[property] = value
+    return {"ok": true, "values": values}
+
+func sample_runtime(id, params):
+    if not paused:
+        reply(id, false, "Pause the debug session before sampling")
+        return
+    var count = int(params.samples)
+    var interval = int(params.intervalFrames)
+    if count < 2 or count > 120 or interval < 1 or interval > 120 or (count - 1) * interval > 1200 or params.kind not in ["physics", "process"]:
+        reply(id, false, "Invalid sampling limits")
+        return
+    var samples = []
+    var metrics = []
+    var bytes = 0
+    for index in count:
+        if index > 0: await advance_paused(interval, params.kind)
+        var values = {}
+        if params.source == "properties":
+            var reading = sample_properties(params)
+            if not reading.ok:
+                reply(id, false, reading.error)
+                return
+            values = reading.values
+        else:
+            var reading = performance_snapshot()
+            for monitor in reading.monitors:
+                if monitor.name in params.monitors:
+                    values[monitor.name] = monitor.value
+                    if index == 0: metrics.append({"name": monitor.name, "unit": monitor.unit, "available": monitor.available})
+        var sample = {"sampledAtMs": Time.get_ticks_msec(), "processFrame": Engine.get_process_frames(), "physicsFrame": Engine.get_physics_frames(), "values": values}
+        bytes += JSON.stringify(sample).to_utf8_buffer().size()
+        if bytes > 40000:
+            reply(id, false, "Sample evidence exceeds 40 KiB; reduce samples/fields")
+            return
+        samples.append(sample)
+    reply(id, true, "", {"samples": samples, "metrics": metrics, "sampleCount": count, "kind": params.kind, "intervalFrames": interval, "advancedFrames": (count - 1) * interval, "paused": true})
 
 func handle_request(id, operation, params):
     match operation:
@@ -162,19 +264,7 @@ func handle_request(id, operation, params):
             if count < 1 or count > 120 or kind not in ["physics", "process"]:
                 reply(id, false, "Invalid frame step")
                 return
-            # Signals occur BEFORE node callbacks. Resume at one boundary, pause
-            # at the boundary after N completed frames, before further callbacks.
-            if kind == "physics":
-                await physics_frame
-            else:
-                await process_frame
-            paused = false
-            for index in count:
-                if kind == "physics":
-                    await physics_frame
-                else:
-                    await process_frame
-            paused = true
+            await advance_paused(count, kind)
             reply(id, true, "", {"frames": count, "kind": kind, "paused": true})
         "pause":
             if not params.get("paused") is bool:
@@ -209,7 +299,17 @@ func handle_request(id, operation, params):
                 _:
                     reply(id, false, "Unknown input kind")
                     return
-            Input.parse_input_event(event)
-            reply(id, true)
+            if params.get("atNextFrame", false):
+                if not paused or queued_input.size() >= 100:
+                    reply(id, false, "Queued input requires a paused session and at most 100 events")
+                    return
+                queued_input.append(event)
+                reply(id, true, "", {"queued": true})
+            else:
+                Input.parse_input_event(event)
+                reply(id, true)
+        "performance":
+            reply(id, true, "", performance_snapshot())
+        "sample": await sample_runtime(id, params)
         _:
             reply(id, false, "Unknown debug operation")

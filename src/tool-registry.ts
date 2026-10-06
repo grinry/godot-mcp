@@ -1,11 +1,15 @@
 import type { Tool } from '@modelcontextprotocol/server';
 import { authoringTools, handleAuthoringTool } from './authoring-tools.js';
+import { configurationTools, handleConfigurationTool } from './configuration-tools.js';
 import type { GodotSession } from './godot-session.js';
 import type { LegacyToolHandlers } from './legacy-handlers.js';
 import { legacyTools } from './legacy-tools.js';
 import type { OperationRunner } from './operation-runner.js';
+import { playtestTools, runPlaytest } from './playtest-tools.js';
 import { overviewTool, projectOverview } from './project-overview.js';
+import { handleResourceTool, resourceTools } from './resource-tools.js';
 import { handleRuntimeTool, runtimeTools } from './runtime-tools.js';
+import { handleSamplingTool, samplingTools } from './sampling-tools.js';
 import { handleSceneTool, sceneTools } from './scene-tools.js';
 import type { RegisteredTool } from './tool-types.js';
 import { extraTools, handleExtraTool } from './workflow-tools.js';
@@ -39,8 +43,9 @@ export class ToolRegistry {
             },
       annotations: {
         readOnlyHint: access === 'read',
-        destructiveHint: access !== 'read',
+        destructiveHint: tool.annotations?.destructiveHint ?? false,
         openWorldHint: access === 'execute',
+        ...tool.annotations,
       },
     }));
   }
@@ -74,6 +79,21 @@ export function createToolRegistry(context: Context) {
           signal,
         ),
     });
+  for (const { access, session, ...tool } of configurationTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) =>
+        handleConfigurationTool(
+          tool.name,
+          args,
+          context.godot(),
+          context.scripts,
+          context.runner,
+          signal,
+        ),
+    });
   for (const { access, session, ...tool } of sceneTools)
     entries.push({
       tool,
@@ -81,6 +101,29 @@ export function createToolRegistry(context: Context) {
       session,
       handle: (args, signal) =>
         handleSceneTool(tool.name, args, context.godot(), context.scripts, context.runner, signal),
+    });
+  for (const { access, session, ...tool } of resourceTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) =>
+        handleResourceTool(
+          tool.name,
+          args,
+          context.godot(),
+          context.scripts,
+          context.runner,
+          signal,
+        ),
+    });
+  for (const { access, session, ...tool } of playtestTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) =>
+        runPlaytest(args, context.session(), context.godot(), context.scripts, signal),
     });
   for (const { access, session, ...tool } of runtimeTools)
     entries.push({
@@ -96,6 +139,13 @@ export function createToolRegistry(context: Context) {
           context.scripts,
           signal,
         ),
+    });
+  for (const { access, session, ...tool } of samplingTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) => handleSamplingTool(tool.name, args, context.session(), signal),
     });
   for (const { access, session, ...tool } of extraTools)
     entries.push({

@@ -122,6 +122,12 @@ class GodotServer {
     script_path: 'scriptPath',
     target_node_path: 'targetNodePath',
     class_name: 'className',
+    resource_path: 'resourcePath',
+    instance_scene_path: 'instanceScenePath',
+    physical_keycode: 'physicalKeycode',
+    axis_value: 'axisValue',
+    interval_frames: 'intervalFrames',
+    command_or_control: 'commandOrControl',
     max_depth: 'maxDepth',
     max_nodes: 'maxNodes',
     max_properties: 'maxProperties',
@@ -185,7 +191,7 @@ class GodotServer {
           tools: {},
         },
         instructions:
-          'Use trusted Godot projects. Start with get_project_overview and get_scene_info before editing. Preview modify_scene with dryRun, then pass its sourceHash as expectedHash to apply. Import textures before loading sprites. Scene edits execute project scripts; invalid/unavailable script dependencies are rejected before saving. Configure a main scene or pass scenePath, then start_debug_session for runtime tree, properties, input and screenshots. Pause before step_frames; stepping leaves the session paused. Display rendering is required for images. Editor launch checks early diagnostics; view_log retains later errors. validate_project checks GDScript only; use scripts or pattern to check changed files. Stop tracked sessions with stop_project or quit_godot.',
+          'Use trusted Godot projects. Start with get_project_overview and get_scene_info before editing. Preview modify_scene with dryRun, then pass its sourceHash as expectedHash to apply. instance_scene and duplicate_node also support scene transactions. Inspect resource classes with get_class_info and files with get_resource_info before create_resource or set_resource_properties; preview writes with dryRun. Import textures before loading sprites. Scene/resource operations execute project scripts; invalid/unavailable script dependencies are rejected before saving. Configure a main scene or pass scenePath, then start_debug_session for runtime tree, properties, input, screenshots and get_performance_monitors. Preview configuration writes with dryRun and apply with expectedHash; input actions replace their complete event list. Configuration serialization uses an isolated engine. Pause before step_frames, sample_performance or sample_node_properties; these advance frames and leave the session paused. Use run_playtest for bounded input/frame/state-assertion scenarios with automatic game cleanup; queued inputs require a following frames step. Display rendering is required for images. Editor launch checks early diagnostics; view_log retains later errors. validate_project checks GDScript only; use scripts or pattern to check changed files. Stop tracked sessions with stop_project or quit_godot and release explicit handles with close_session.',
       },
     );
 
@@ -500,8 +506,18 @@ class GodotServer {
         }
 
         // Property dictionaries contain Godot names, not MCP argument names.
-        if (normalizedKey === 'properties') result[normalizedKey] = params[key];
-        else if (normalizedKey === 'operations' && Array.isArray(params[key]))
+        if (
+          normalizedKey === 'properties' ||
+          normalizedKey === 'expected' ||
+          normalizedKey === 'value'
+        )
+          result[normalizedKey] = params[key];
+        else if (
+          (normalizedKey === 'operations' ||
+            normalizedKey === 'steps' ||
+            normalizedKey === 'events') &&
+          Array.isArray(params[key])
+        )
           result[normalizedKey] = params[key].map((operation) =>
             this.normalizeParameters(operation),
           );
