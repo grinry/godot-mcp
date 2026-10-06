@@ -29,6 +29,15 @@ Statuses become implemented only after code and relevant checks are complete. Ve
 - MCP Inspector 2.9.0 verified 13 configuration/sampling calls (success and invalid-input/missing-session cases), plus strict discovery with zero schema warnings/errors. Inspector exposed an all-actions nullable-key output mismatch, corrected and rechecked. Successful sampling is exercised through live MCP regressions. Desktop bundle validates **56 tools**; build, Biome, diff checks and package contents passed. A second minor changeset records this batch.
 - These entries describe working-tree implementation, not a release. Positive .NET support and native Windows/Linux engine behavior have not been verified in this batch.
 
+### PR review
+
+- 2026-10-06: separate standards and behavior reviews found two actionable configuration issues: the input schema excluded nested arrays supported by the decoder, and input-action reads could omit stored fields while labeling the binding supported. Both are corrected. Reads now verify reconstruction against stored event properties and mark unrepresentable shapes unsupported; regression coverage includes key location, mouse double-click and fractional joypad-axis values. Small duplication heuristics did not justify broad refactoring. Follow-up behavior review found no remaining actionable concerns.
+- Final review validation: 43 real-engine tests passed with rendering, export and GUT when run with test files sequenced (`--test-concurrency=1`); the preceding overlapping run hit existing startup/input timing failures. Affected configuration tests passed on Node 22.14; strict Inspector discovery and 14 affected tool calls passed, including nested arrays. Rebuilt desktop bundle validates 56 tools; build, Biome and diff checks pass.
+
+### README audit
+
+- 2026-10-06: all 56 registered tools are named in README. Expanded the top Features list for validation/export, live feedback/input, reflection, sessions and transactional authoring. Clarified repository versus published-package availability, Godot 4 requirements, sampling session handles and the execution-policy limits on runtime/property/configuration reads.
+
 ### Next implementation batches
 
 1. Subtree extraction with explicit multi-file failure/rollback semantics, then broader resource value types.

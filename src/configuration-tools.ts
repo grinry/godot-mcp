@@ -14,7 +14,10 @@ const primitive = [
   string,
   { type: 'object', additionalProperties: true },
 ];
-const valueSchema = { anyOf: [...primitive, { type: 'array', items: { anyOf: primitive } }] };
+// Recursive JSON collections are bounded and type-checked by the engine decoder.
+const valueSchema = {
+  anyOf: [...primitive, { type: 'array', items: { $ref: '#/$defs/settingValue' } }],
+};
 const eventSchema = {
   type: 'object',
   properties: {
@@ -71,6 +74,7 @@ export const configurationTools: ToolSpecification[] = Object.entries(descriptio
       },
       inputSchema: {
         type: 'object',
+        ...(name === 'set_project_setting' ? { $defs: { settingValue: valueSchema } } : {}),
         properties: {
           projectPath: string,
           ...(setting ? { setting: string } : autoload ? { name: string } : { action: string }),

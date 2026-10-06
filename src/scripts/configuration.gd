@@ -108,7 +108,28 @@ func event_info(event):
         info.shift = event.shift_pressed
         info.alt = event.alt_pressed
         info.meta = event.meta_pressed if not info.commandOrControl else false
-    if info.kind != "unsupported": info.erase("class")
+    if info.kind != "unsupported":
+        var representable = event.device >= -1 and event.device <= 255
+        if info.kind == "mouse_button": representable = representable and info.button >= 1 and info.button <= 9
+        elif info.kind == "joypad_button": representable = representable and info.button >= 0 and info.button <= 127
+        elif info.kind == "joypad_motion": representable = representable and info.axis >= 0 and info.axis <= 9 and (info.axisValue == -1 or info.axisValue == 1)
+        elif info.kind == "key":
+            var code = info.get("keycode", info.get("physicalKeycode", 0))
+            representable = representable and code >= 1 and code <= 2147483647
+        if representable:
+            var rebuilt = make_event(info)
+            representable = rebuilt.ok
+            if representable:
+                for property in event.get_property_list():
+                    if property.usage & PROPERTY_USAGE_STORAGE and event.get(property.name) != rebuilt.value.get(property.name):
+                        info.unsupportedProperty = str(property.name)
+                        representable = false
+                        break
+        if representable:
+            info.erase("class")
+        else:
+            info.kind = "unsupported"
+            info.reason = "Stored fields cannot be preserved by the supported binding schema"
     return info
 
 func _init():

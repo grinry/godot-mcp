@@ -114,7 +114,12 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
     const original =
       '; Header\r\nconfig_version=5\r\n[application]\r\nconfig/name="Game" ; retain name comment\r\nrun/main_scene="res://scene.tscn"\r\n[display]\r\nwindow/size/viewport_width = 800 ; width comment\r\n[autoload]\r\nExisting="*res://state.gd"\r\n' +
       untouched;
-    await writeFile(join(root, 'project.godot'), original);
+    const specialBindings =
+      '[input]\r\nspecial={"deadzone":0.5,"events":[' +
+      'Object(InputEventKey,"keycode":4194325,"location":1),' +
+      'Object(InputEventMouseButton,"button_index":1,"double_click":true),' +
+      'Object(InputEventJoypadMotion,"axis":0,"axis_value":0.5)]}\r\n';
+    await writeFile(join(root, 'project.godot'), original + specialBindings);
     await writeFile(
       join(root, 'state.gd'),
       'extends Node\nfunc _init():\n    var file = FileAccess.open("res://autoload-ran.txt", FileAccess.WRITE)\n    file.store_string("ran")\n',
@@ -126,6 +131,16 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
     await client.connect(transport);
     const call = (name, args = {}) =>
       client.callTool({ name, arguments: { projectPath: root, ...args } });
+    const special = data(await call('get_input_actions', { action: 'special' }));
+    assert.deepEqual(
+      special.actions[0].events.map((event) => event.kind),
+      ['unsupported', 'unsupported', 'unsupported'],
+    );
+    assert.equal(
+      (await call('set_input_action', { action: 'special', events: special.actions[0].events }))
+        .isError,
+      true,
+    );
     const read = data(
       await call('get_project_setting', { setting: 'display/window/size/viewport_width' }),
     );
@@ -142,7 +157,7 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
       }),
     );
     assert.equal(preview.saved, false);
-    assert.equal(await readFile(join(root, 'project.godot'), 'utf8'), original);
+    assert.equal(await readFile(join(root, 'project.godot'), 'utf8'), original + specialBindings);
     data(
       await call('set_project_setting', {
         setting: 'display/window/size/viewport_width',
@@ -153,6 +168,7 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
     const updated = await readFile(join(root, 'project.godot'), 'utf8');
     assert.ok(updated.includes('window/size/viewport_width = 1280 ; width comment\r\n'));
     assert.ok(updated.includes(untouched));
+    assert.ok(updated.includes(specialBindings));
     for (const args of [
       { setting: 'display/window/size/viewport_width', value: 'wrong' },
       { setting: 'input/jump', value: {} },
@@ -176,7 +192,7 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
     data(
       await call('set_project_setting', {
         setting: 'game/nested',
-        value: { names: ['A', 'B'], literal_key: 'unchanged' },
+        value: [[1, 2], [{ names: ['A', 'B'], literal_key: 'unchanged' }]],
       }),
     );
     data(await call('remove_project_setting', { setting: 'game/vector' }));
@@ -255,6 +271,7 @@ test('real Godot configuration tools preserve comments, serialize bindings, guar
     assert.equal(cleared.actions[0].deadzone, 0.25);
     assert.deepEqual(cleared.actions[0].events, []);
     data(await call('remove_input_action', { action: 'move_left' }));
+    data(await call('remove_input_action', { action: 'special' }));
     assert.deepEqual(data(await call('get_input_actions')).actions, []);
     assert.equal(
       (

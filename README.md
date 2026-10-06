@@ -63,6 +63,8 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 
 ## Features
 
+This README describes the code in this checkout. Features with pending changesets may not yet be available in the published npm package or its plugin launcher; use a local build to try unreleased changes.
+
 - **Launch Godot Editor**: Open the Godot editor for a specific project
 - **Run Godot Projects**: Execute Godot projects in debug mode
 - **Capture Debug Output**: Retrieve console output and error messages
@@ -73,7 +75,11 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 - **Control Execution**: Start and stop Godot projects programmatically
 - **Get Godot Version**: Retrieve the installed Godot version
 - **List Godot Projects**: Find Godot projects in a specified directory
-- **Project Analysis**: Get detailed information about project structure
+- **Project Analysis**: Inspect project configuration, source declarations, dependencies and saved scene structure
+- **Validation and Export**: Check all or selected GDScript files, run scene tests or GUT tests, and export through existing presets
+- **Live Feedback and Input**: Inspect runtime trees/properties, simulate input, pause and step frames, and capture fresh-scene or running-game screenshots
+- **Godot Reflection**: Inspect built-in class properties, methods, signals and enums from the installed engine
+- **Independent Sessions**: Track separate game/editor processes with explicit handles on modern MCP clients
 - **Scene Management**:
   - Create new scenes with specified root node types
   - Add nodes to existing scenes with customizable properties
@@ -81,6 +87,8 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
   - Export 3D scenes as MeshLibrary resources for GridMap
   - Save scenes with options for creating variants
   - Instance reusable scenes and duplicate supported local subtrees with atomic saves and previews
+  - Attach scripts, assign node references and configure the main scene
+  - Preview transactional property, hierarchy, group and signal edits with content-hash guards
 - **Resource Authoring**: Inspect, create, and edit `.tres`/`.res` resources using validated typed properties
 - **UID Management** (for Godot 4.4+):
   - Get UID for specific files
@@ -88,7 +96,7 @@ Godot MCP enables AI agents to launch the Godot editor, run projects, capture de
 
 ## Requirements
 
-- [Godot Engine](https://godotengine.org/download) installed on your system
+- [Godot Engine 4](https://godotengine.org/download) installed on your system
 - Node.js (>=22.14.0) and npm
 - An AI agent that supports MCP
 
@@ -445,7 +453,7 @@ These tools support the same primitive, numeric vector/color, NodePath and exter
 
 For gameplay checks, start a debug session, send input, pause it with `set_debug_pause`, record properties, call `step_frames` with `frames` (1–120) and `kind` (`physics`, default, or `process`), and inspect again or capture a screenshot. Stepping requires a paused session, resumes through the requested frame boundaries, and leaves it paused. Process stepping may advance physics too, and physics stepping may advance process frames. Nodes that ignore pause, wall-clock timers, asynchronous work and external systems continue to follow Godot's behavior; this is not a deterministic replay engine. Use the returned session handle on modern MCP clients.
 
-`get_performance_monitors` reads the current debug session's FPS, process/physics times (milliseconds), memory, object/node/resource counts, draw calls and active physics bodies. Each monitor includes `unit` and `available`, with null values for unavailable headless render metrics. `sampledAtMs` is monotonic engine uptime, not a calendar timestamp. Some engine monitors update only once per second; an early zero does not prove that the measured work is absent. This tool works while paused and in read-only mode. It provides snapshots, not function-level profiling or multi-frame summaries.
+`get_performance_monitors` reads the current debug session's FPS, process/physics times (milliseconds), memory, object/node/resource counts, draw calls and active physics bodies. Each monitor includes `unit` and `available`, with null values for unavailable headless render metrics. `sampledAtMs` is monotonic engine uptime, not a calendar timestamp. Some engine monitors update only once per second; an early zero does not prove that the measured work is absent. This tool works while paused and in read-only mode. It provides snapshots; use `sample_performance` below for multi-frame series and summaries. Function-level profiling is not supported.
 
 ## Project configuration
 
@@ -476,7 +484,7 @@ Autoload registration checks file existence/confinement and built-in class-name 
 }
 ```
 
-Pass this to `set_input_action`. Bindings support `key` (choose exactly one `key`, numeric `keycode` or `physicalKeycode`), `mouse_button` (`button` 1–9), `joypad_button` (`button` 0–127) and `joypad_motion` (`axis` 0–9, `axisValue` -1 or 1). `device` defaults to -1 (all devices). Key/mouse bindings support `ctrl`, `shift`, `alt`, `meta` and `commandOrControl`; the last enables Godot's platform-specific Command/Control mapping and cannot be combined with explicit ctrl/meta. Up to 32 events are accepted. Reads mark unsupported event shapes/classes rather than silently converting them; their original bytes survive unrelated edits. Action/autoload names use identifier syntax.
+Pass this to `set_input_action`. Bindings support `key` (choose exactly one `key`, numeric `keycode` or `physicalKeycode`), `mouse_button` (`button` 1–9), `joypad_button` (`button` 0–127) and `joypad_motion` (`axis` 0–9, `axisValue` -1 or 1). `device` defaults to -1 (all devices). Key/mouse bindings support `ctrl`, `shift`, `alt`, `meta` and `commandOrControl`; the last enables Godot's platform-specific Command/Control mapping and cannot be combined with explicit ctrl/meta. Up to 32 events are accepted. Reads mark unsupported event shapes/classes rather than silently converting them, including non-default key locations, mouse double-clicks and fractional controller-axis bindings; their original bytes survive unrelated edits. Action/autoload names use identifier syntax.
 
 Examples for other writers:
 
@@ -540,13 +548,13 @@ Validation, finite test/export runs and game debug output include `diagnostics` 
 
 The official MCP v2 server supports `2026-07-28` over stdio, including discovery and per-request metadata, while retaining `2025-11-25` initialization compatibility. Server instructions guide the workflow and tool annotations identify read and mutation operations.
 
-For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree, property inspection, stepping and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
+For `2026-07-28`, `run_project`, `run_scene`, `launch_editor`, and `start_debug_session` return a `sessionId` in a final text content block. Pass it to subsequent log, input, pause, screenshot, runtime-tree, property inspection, performance snapshots, sampling, stepping and stop calls. Multiple sessions are independent. Supplying an existing handle replaces the previous process of that kind in that session. `close_session` stops its game/editor and releases the handle; stale handles are rejected. A server supports at most 16 explicit sessions at once. Older clients retain the existing default-session workflow, and may opt into explicit sessions by using handles returned by newer clients.
 
 ## Optional execution policy
 
 Set `GODOT_ALLOWED_ROOTS` to permitted project/search directories, separated by the platform path-list delimiter (`:` on macOS/Linux, `;` on Windows). Canonical paths are checked, including symlinks. With no value, project selection remains unrestricted.
 
-Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries and process cleanup while rejecting resource writes and project execution, including tests and screenshots that start scenes. Existing runtime inspection is allowed. These controls restrict MCP requests; they are not an OS sandbox for project scripts. Hosts should retain their tool-approval controls.
+Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries and process cleanup while rejecting resource writes and project execution, including tests and screenshots that start scenes. For an existing session, runtime-tree and performance-snapshot reads are allowed. Property getters, sampling, input, pause changes and screenshots require execution permission and are blocked. Configuration/resource parsing that invokes Godot is also blocked; raw project-setting reads remain allowed. These controls restrict MCP requests; they are not an OS sandbox for project scripts. Hosts should retain their tool-approval controls.
 
 ### Windows and WSL
 
