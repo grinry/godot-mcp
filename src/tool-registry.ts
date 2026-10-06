@@ -123,7 +123,14 @@ export function createToolRegistry(context: Context) {
       access,
       session,
       handle: (args, signal) =>
-        runPlaytest(args, context.session(), context.godot(), context.scripts, signal),
+        runPlaytest(
+          args,
+          context.session(),
+          context.godot(),
+          context.scripts,
+          signal,
+          context.runner,
+        ),
     });
   for (const { access, session, ...tool } of runtimeTools)
     entries.push({

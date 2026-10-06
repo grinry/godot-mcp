@@ -68,7 +68,7 @@ This README describes the code in this checkout. Features with pending changeset
 - **Launch Godot Editor**: Open the Godot editor for a specific project
 - **Run Godot Projects**: Execute Godot projects in debug mode
 - **Capture Debug Output**: Retrieve console output and error messages
-- **Reusable Playtests**: Run frame-based input sequences, state assertions, and screenshot steps with structured results and cleanup
+- **Reusable Playtests**: Run frame-based input sequences, state assertions, PNG baseline comparisons with diff images, and screenshot steps with structured results and cleanup
 - **Runtime Performance**: Read timestamped engine monitors with units and renderer availability
 - **Frame-Based Sampling**: Collect monitor/property series with scalar and vector summaries
 - **Project Configuration**: Preview and edit settings, autoloads and InputMap bindings while preserving unrelated comments and values
@@ -520,7 +520,7 @@ Limits are 2–120 samples, 1–120 frames per interval, 1200 total advanced fra
 
 Steps are `input` (`event`, using `simulate_input` fields), `frames` (`frames`, optional `kind`), `assert` (`nodePath`, `property`, `expected`, optional `comparison`/`tolerance`) and `screenshot`. Input events are queued while paused and flushed when the next frame step resumes, before its node callbacks. Follow input with a frame step before assertions, screenshots or the end of the sequence. Multiple queued events retain their order.
 
-Comparisons are `eq` (default), `ne`, numeric `lt`/`lte`/`gt`/`gte`, and `approx` (recursive numeric tolerance, default 0.00001). Vectors/colors use the explicit typed shapes returned by `get_node_properties`. Truncated or unsupported values cannot pass an assertion. At least one assertion is required. The result contains per-step evidence, overall `passed`, diagnostics and inline screenshot images; failed assertions return `isError:true`. Operational failures report `RUNTIME_ERROR`, `TIMEOUT` or `OUTPUT_LIMIT` with completed-step evidence. Cancellation stops the game before propagating the cancelled request.
+Comparisons are `eq` (default), `ne`, numeric `lt`/`lte`/`gt`/`gte`, and `approx` (recursive numeric tolerance, default 0.00001). Vectors/colors use the explicit typed shapes returned by `get_node_properties`. Truncated or unsupported values cannot pass an assertion. At least one state assertion or screenshot comparison is required. The result contains per-step evidence, overall `passed`, diagnostics and inline screenshot images; failed assertions return `isError:true`. Operational failures report `RUNTIME_ERROR`, `TIMEOUT` or `OUTPUT_LIMIT` with completed-step evidence. Cancellation stops the game before propagating the cancelled request.
 
 ```json
 {
@@ -536,7 +536,31 @@ Comparisons are `eq` (default), `ne`, numeric `lt`/`lte`/`gt`/`gte`, and `approx
 }
 ```
 
-Limits: 100 steps, 50 assertions, 120 frames per step/1200 total, three screenshots and 30 KiB of assertion evidence. `timeoutMs` defaults to 60000 (maximum 600000). `headless` defaults to true; screenshots require `headless:false` and a display. Frame boundaries improve repeatability but do not guarantee deterministic gameplay, fixed startup-frame counts or paused external systems. Input recording, stress testing and screenshot baseline comparison are not provided yet.
+Limits: 100 steps, 50 combined state/visual assertions, 120 frames per step/1200 total, three screenshots and 30 KiB of assertion evidence. `timeoutMs` defaults to 60000 (maximum 600000). `headless` defaults to true; screenshots require `headless:false` and a display. Frame boundaries improve repeatability but do not guarantee deterministic gameplay, fixed startup-frame counts or paused external systems. Input recording and stress testing are not provided yet.
+
+### Screenshot baseline comparison
+
+Use a `compare_screenshot` step in `run_playtest` with `headless:false`:
+
+```json
+{
+  "projectPath": "/path/to/project",
+  "scenePath": "res://menu.tscn",
+  "headless": false,
+  "steps": [
+    {"op": "frames", "frames": 3, "kind": "process"},
+    {"op": "compare_screenshot", "baselinePath": "res://tests/baselines/menu.png", "pixelTolerance": 2, "maxChangedRatio": 0.001}
+  ]
+}
+```
+
+`baselinePath` must name an existing PNG inside the project; escaping paths/symlinks are rejected. All baselines are snapshotted, hashed and decoded in an isolated headless engine before replacing the selected game. Missing, malformed or oversized references leave any existing game running. Comparison reads the snapshot, so later edits to the reference cannot change the check. The tool never writes, creates or updates baseline files. To establish a baseline, capture the intended state with a `screenshot` step and explicitly save its returned PNG to your chosen project path.
+
+Both images convert to RGBA8 with Godot's [Image API](https://docs.godotengine.org/en/stable/classes/class_image.html). A pixel is changed if any of its four channel differences exceeds `pixelTolerance` (integer 0–255, default 0). The step passes when `changedPixels / totalPixels <= maxChangedRatio` (0–1, default 0); the example allows a channel difference of 2 and up to 0.1% changed pixels. Comparison includes alpha and RGB even in transparent pixels; it does not apply perceptual, anti-aliasing or color-profile corrections. Images are compared at their original size. Different dimensions return a failed step with `IMAGE_DIMENSION_MISMATCH` and both sizes, without a diff.
+
+Each completed comparison reports `passed`, `baselinePath`, `baselineHash`, dimensions, `changedPixels`, `totalPixels`, `changedRatio`, `changedPercentage` and `maxChannelDelta`, plus tolerances. The tool returns both the actual screenshot and a diff PNG: magenta pixels exceed tolerance; other pixels show the actual image in dim grayscale. `imageIndex` and `diffImageIndex` index the response's image blocks, excluding its initial text block. `screenshotCount` counts captures and `diffCount` counts diff images. A failed visual assertion makes the overall tool result `isError:true`; remaining steps still execute, and the game is stopped afterward.
+
+Each PNG is limited to 8 MiB, 4096 pixels per axis and four million total pixels; comparison shares the existing three-capture scenario limit, deadline and cancellation cleanup. References need no Godot import metadata. A display renderer is required for the actual capture. Keep resolution, renderer, fonts and scene state consistent; this is a byte-channel comparison, not a guarantee of cross-platform visual identity. Wait for the intended state using frames/state assertions before capturing.
 
 ## Targeted validation and diagnostics
 

@@ -126,6 +126,9 @@ class GodotServer {
     instance_scene_path: 'instanceScenePath',
     physical_keycode: 'physicalKeycode',
     axis_value: 'axisValue',
+    baseline_path: 'baselinePath',
+    pixel_tolerance: 'pixelTolerance',
+    max_changed_ratio: 'maxChangedRatio',
     interval_frames: 'intervalFrames',
     command_or_control: 'commandOrControl',
     max_depth: 'maxDepth',
@@ -191,7 +194,7 @@ class GodotServer {
           tools: {},
         },
         instructions:
-          'Use trusted Godot projects. Start with get_project_overview and get_scene_info before editing. Preview modify_scene with dryRun, then pass its sourceHash as expectedHash to apply. instance_scene and duplicate_node also support scene transactions. Inspect resource classes with get_class_info and files with get_resource_info before create_resource or set_resource_properties; preview writes with dryRun. Import textures before loading sprites. Scene/resource operations execute project scripts; invalid/unavailable script dependencies are rejected before saving. Configure a main scene or pass scenePath, then start_debug_session for runtime tree, properties, input, screenshots and get_performance_monitors. Preview configuration writes with dryRun and apply with expectedHash; input actions replace their complete event list. Configuration serialization uses an isolated engine. Pause before step_frames, sample_performance or sample_node_properties; these advance frames and leave the session paused. Use run_playtest for bounded input/frame/state-assertion scenarios with automatic game cleanup; queued inputs require a following frames step. Display rendering is required for images. Editor launch checks early diagnostics; view_log retains later errors. validate_project checks GDScript only; use scripts or pattern to check changed files. Stop tracked sessions with stop_project or quit_godot and release explicit handles with close_session.',
+          'Use trusted Godot projects. Start with get_project_overview and get_scene_info before editing. Preview modify_scene with dryRun, then pass its sourceHash as expectedHash to apply. instance_scene and duplicate_node also support scene transactions. Inspect resource classes with get_class_info and files with get_resource_info before create_resource or set_resource_properties; preview writes with dryRun. Import textures before loading sprites. Scene/resource operations execute project scripts; invalid/unavailable script dependencies are rejected before saving. Configure a main scene or pass scenePath, then start_debug_session for runtime tree, properties, input, screenshots and get_performance_monitors. Preview configuration writes with dryRun and apply with expectedHash; input actions replace their complete event list. Configuration serialization uses an isolated engine. Pause before step_frames, sample_performance or sample_node_properties; these advance frames and leave the session paused. Use run_playtest for bounded input/frame/state-assertion and compare_screenshot baseline scenarios with automatic game cleanup; queued inputs require a following frames step. compare_screenshot reads existing project PNGs and returns visual differences; it never updates baselines. Display rendering is required for captures. Editor launch checks early diagnostics; view_log retains later errors. validate_project checks GDScript only; use scripts or pattern to check changed files. Stop tracked sessions with stop_project or quit_godot and release explicit handles with close_session.',
       },
     );
 

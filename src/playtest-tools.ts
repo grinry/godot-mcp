@@ -3,7 +3,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { nodePath } from './authoring-tools.js';
 import { diagnosticCounts, parseDiagnostics } from './diagnostics.js';
 import type { GodotSession } from './godot-session.js';
+import type { OperationRunner } from './operation-runner.js';
 import { projectFile, projectRoot } from './project-paths.js';
+import { ScreenshotComparison, type VisualAssertion } from './screenshot-comparison.js';
 import type { ToolSpecification } from './tool-types.js';
 import { inputParameters } from './workflow-tools.js';
 
@@ -21,7 +23,8 @@ type Step =
       expected: unknown;
       tolerance: number;
     }
-  | { op: 'screenshot' };
+  | { op: 'screenshot' }
+  | VisualAssertion;
 
 export const playtestTools: ToolSpecification[] = [
   {
@@ -29,7 +32,7 @@ export const playtestTools: ToolSpecification[] = [
     access: 'execute',
     session: 'start',
     description:
-      'Run bounded input/frame/assertion/screenshot steps in a fresh temporary debug session and always stop its game. Queued inputs are delivered on the following frame step. Returns evidence and pass/fail; does not promise deterministic simulation. Replaces the game in the selected session.',
+      'Run bounded input/frame/state-assertion/screenshot-comparison steps in a fresh temporary debug session and always stop its game. Queued inputs are delivered on the following frame step. Compare reference PNGs with compare_screenshot; references are never updated. Returns evidence and pass/fail; does not promise deterministic simulation. Replaces the game in the selected session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -104,6 +107,17 @@ export const playtestTools: ToolSpecification[] = [
               },
               {
                 type: 'object',
+                properties: {
+                  op: { const: 'compare_screenshot' },
+                  baselinePath: string,
+                  pixelTolerance: { type: 'integer', minimum: 0, maximum: 255, default: 0 },
+                  maxChangedRatio: { type: 'number', minimum: 0, maximum: 1, default: 0 },
+                },
+                required: ['op', 'baselinePath'],
+                additionalProperties: false,
+              },
+              {
+                type: 'object',
                 properties: { op: { const: 'screenshot' } },
                 required: ['op'],
                 additionalProperties: false,
@@ -123,6 +137,7 @@ export const playtestTools: ToolSpecification[] = [
         requestedSteps: { type: 'integer' },
         completedSteps: { type: 'integer' },
         screenshotCount: { type: 'integer' },
+        diffCount: { type: 'integer' },
         diagnostics: { type: 'array', items: { type: 'object' } },
         error: { type: 'string' },
         code: { type: 'string' },
@@ -190,11 +205,34 @@ export function validatePlaytest(args: Record<string, unknown>) {
       return { op: 'frames', frames: count, kind };
     }
     if (queued) throw new Error('Follow queued input with a frames step before inspecting state');
-    if (step.op === 'screenshot') {
+    if (step.op === 'screenshot' || step.op === 'compare_screenshot') {
       screenshots += 1;
       if (screenshots > 3) throw new Error('Playtests are limited to three screenshots');
       if (args.headless !== false) throw new Error('Screenshots require headless:false');
-      return { op: 'screenshot' };
+      if (step.op === 'screenshot') return { op: 'screenshot' };
+      assertions += 1;
+      if (assertions > 50) throw new Error('Playtests are limited to 50 assertions');
+      if (
+        typeof step.baselinePath !== 'string' ||
+        !step.baselinePath ||
+        step.baselinePath.includes('\0')
+      )
+        throw new Error('compare_screenshot requires baselinePath');
+      const pixelTolerance = integer(step.pixelTolerance ?? 0, 0, 255, 'pixelTolerance');
+      const maxChangedRatio = step.maxChangedRatio ?? 0;
+      if (
+        typeof maxChangedRatio !== 'number' ||
+        !Number.isFinite(maxChangedRatio) ||
+        maxChangedRatio < 0 ||
+        maxChangedRatio > 1
+      )
+        throw new Error('maxChangedRatio must be between 0 and 1');
+      return {
+        op: 'compare_screenshot',
+        baselinePath: step.baselinePath,
+        pixelTolerance,
+        maxChangedRatio,
+      };
     }
     if (step.op !== 'assert') throw new Error('Unknown playtest step');
     assertions += 1;
@@ -233,7 +271,8 @@ export function validatePlaytest(args: Record<string, unknown>) {
     };
   });
   if (queued) throw new Error('Playtests must finish delivering input with a frames step');
-  if (assertions === 0) throw new Error('Playtests require at least one state assertion');
+  if (assertions === 0)
+    throw new Error('Playtests require at least one state or screenshot comparison assertion');
   return { steps, timeoutMs };
 }
 
@@ -300,6 +339,7 @@ export async function runPlaytest(
   godot: string,
   scripts: string,
   signal?: AbortSignal,
+  runner?: OperationRunner,
 ) {
   const { steps, timeoutMs } = validatePlaytest(args);
   const root = await projectRoot(args.projectPath);
@@ -311,12 +351,28 @@ export async function runPlaytest(
   const runSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const results: Record<string, unknown>[] = [];
   const images: { type: 'image'; mimeType: string; data: string }[] = [];
+  let screenshotCount = 0;
+  let visual: ScreenshotComparison | undefined;
   let failure: { error: string; code: string } | undefined;
   let started = false;
   let attempted = false;
   let stopped = false;
   try {
     runSignal.throwIfAborted();
+    const comparisons = steps.filter(
+      (step): step is VisualAssertion => step.op === 'compare_screenshot',
+    );
+    if (comparisons.length) {
+      if (!runner) throw new Error('Screenshot comparison runner unavailable');
+      visual = await ScreenshotComparison.prepare(
+        comparisons,
+        root,
+        godot,
+        scripts,
+        runner,
+        runSignal,
+      );
+    }
     attempted = true;
     await session.live.start(
       godot,
@@ -336,17 +392,27 @@ export async function runPlaytest(
       } else if (step.op === 'frames') {
         await session.live.request('step', { frames: step.frames, kind: step.kind }, runSignal);
         result = { ...result, frames: step.frames, kind: step.kind };
-      } else if (step.op === 'screenshot') {
+      } else if (step.op === 'screenshot' || step.op === 'compare_screenshot') {
         const response = await session.live.request('screenshot', {}, runSignal);
         if (typeof response.image !== 'string')
           throw new Error('Screenshot did not return an image');
         images.push({ type: 'image', mimeType: 'image/png', data: response.image });
+        screenshotCount += 1;
         result = {
           ...result,
           imageIndex: images.length - 1,
           width: response.width,
           height: response.height,
         };
+        if (step.op === 'compare_screenshot') {
+          if (!visual) throw new Error('Screenshot comparison was not prepared');
+          const compared = await visual.compare(step, response.image, runSignal);
+          result = { ...result, ...compared.result };
+          if (compared.diff) {
+            result.diffImageIndex = images.length;
+            images.push({ type: 'image', mimeType: 'image/png', data: compared.diff });
+          }
+        }
       } else {
         const response = await session.live.request(
           'properties',
@@ -384,7 +450,11 @@ export async function runPlaytest(
   } finally {
     // Terminating the owned game releases held inputs, queued events and temporary IPC.
     // If startup never began, validation must not stop an existing game.
-    if (attempted) await session.live.close();
+    try {
+      if (attempted) await session.live.close();
+    } finally {
+      await visual?.close();
+    }
     stopped = attempted && !session.game.current?.running;
   }
   signal?.throwIfAborted();
@@ -412,7 +482,8 @@ export async function runPlaytest(
     steps: results,
     requestedSteps: steps.length,
     completedSteps: results.length,
-    screenshotCount: images.length,
+    screenshotCount,
+    diffCount: images.length - screenshotCount,
     diagnostics,
     diagnosticsTruncated: allDiagnostics.length > diagnostics.length,
     logsTruncated: snapshot?.truncated ?? false,

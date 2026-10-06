@@ -207,6 +207,32 @@ test('frame-based gameplay assertions, queued input, monitor snapshots and scena
       assert.equal(result.screenshotCount, 1);
       assert.equal(captured.content[1].type, 'image');
       assert.equal(captured.content[1].mimeType, 'image/png');
+      const baseline = Buffer.from(captured.content[1].data, 'base64');
+      await writeFile(join(root, 'baseline.png'), baseline);
+      const compared = await call('run_playtest', {
+        projectPath: root,
+        headless: false,
+        steps: [
+          { op: 'frames', frames: 2, kind: 'process' },
+          { op: 'compare_screenshot', baseline_path: 'baseline.png' },
+        ],
+      });
+      const comparison = data(compared);
+      assert.equal(comparison.steps[1].changedPixels, 0);
+      assert.equal(comparison.screenshotCount, 1);
+      assert.equal(comparison.diffCount, 1);
+      assert.equal(compared.content[comparison.steps[1].diffImageIndex + 1].type, 'image');
+      assert.equal(comparison.stopped, true);
+      assert.deepEqual(await readFile(join(root, 'baseline.png')), baseline);
+      await call('start_debug_session', { projectPath: root, headless: true });
+      const invalid = await call('run_playtest', {
+        projectPath: root,
+        headless: false,
+        steps: [{ op: 'compare_screenshot', baselinePath: 'missing.png' }],
+      });
+      assert.equal(invalid.isError, true);
+      assert.equal(JSON.parse((await call('get_debug_output')).content[0].text).running, true);
+      await call('stop_project');
     }
     assert.equal(await readFile(join(root, 'project.godot'), 'utf8'), project);
     assert.equal(await readFile(join(root, 'scene.tscn'), 'utf8'), scene);
