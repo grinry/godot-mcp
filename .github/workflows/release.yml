@@ -57,6 +57,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Request release pull request review
+        if: steps.changesets.outputs.pullRequestNumber != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+        run: gh pr edit "$RELEASE_PR_NUMBER" --repo "$GITHUB_REPOSITORY" --add-reviewer grinry
+
       - name: Build desktop bundle
         if: steps.changesets.outputs.published == 'true'
         run: npm run build:mcpb

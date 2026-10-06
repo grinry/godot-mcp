@@ -239,7 +239,8 @@ Documentation-only changes do not need a changeset unless they should trigger a 
 
 On pushes to `main`, `.github/workflows/release.yml` installs dependencies and
 runs Changesets. Pending changesets create or update a release PR containing the
-version bump, `CHANGELOG.md`, and synchronized `package-lock.json`.
+version bump, `CHANGELOG.md`, and synchronized `package-lock.json`. The workflow
+requests review from `grinry` when it creates or updates that PR.
 
 Merge the release PR to build and publish the new version publicly to npm and
 create a GitHub release. The fork's first release was `0.1.2`, following the
