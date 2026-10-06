@@ -1,20 +1,7 @@
 import { realpath } from 'node:fs/promises';
 import { delimiter, isAbsolute, relative, sep } from 'node:path';
-
-const readTools = new Set([
-  'get_godot_version',
-  'list_projects',
-  'get_project_info',
-  'list_project_files',
-  'get_debug_output',
-  'view_log',
-  'get_uid',
-  'get_class_info',
-  'get_runtime_tree',
-  'stop_project',
-  'quit_godot',
-  'close_session',
-]);
+import { toolSpecifications } from './tool-specifications.js';
+import type { ToolAccess } from './tool-types.js';
 
 export class ToolPolicy {
   constructor(
@@ -24,8 +11,9 @@ export class ToolPolicy {
     private readonly readOnly = process.env.GODOT_READ_ONLY === 'true',
   ) {}
 
-  async check(name: string, args: Record<string, unknown>) {
-    if (this.readOnly && !readTools.has(name))
+  async check(name: string, args: Record<string, unknown>, access?: ToolAccess) {
+    access ??= toolSpecifications.find((tool) => tool.name === name)?.access;
+    if (this.readOnly && (access === undefined || access === 'execute'))
       throw new Error(
         `GODOT_READ_ONLY blocks ${name}: it writes resources or executes project code`,
       );
@@ -47,10 +35,5 @@ export class ToolPolicy {
 }
 
 export function isReadTool(name: string) {
-  return (
-    readTools.has(name) &&
-    name !== 'stop_project' &&
-    name !== 'quit_godot' &&
-    name !== 'close_session'
-  );
+  return toolSpecifications.find((tool) => tool.name === name)?.access === 'read';
 }

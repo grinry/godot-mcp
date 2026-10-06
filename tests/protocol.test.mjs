@@ -119,6 +119,31 @@ test('official modern client uses explicit independent sessions and rejects stal
     }
     assert.notEqual(sessions[0], sessions[1]);
     assert.equal((await call('get_runtime_tree')).isError, true);
+    assert.equal(
+      (await call('get_node_properties', { nodePath: '.', properties: ['position'] })).isError,
+      true,
+    );
+    assert.equal((await call('step_frames', { frames: 1 })).isError, true);
+    const inspected = await call('get_node_properties', {
+      sessionId: sessions[0],
+      nodePath: '.',
+      properties: ['position'],
+    });
+    assert.notEqual(inspected.isError, true, JSON.stringify(inspected));
+    assert.equal(inspected.structuredContent.paused, false);
+    await call('set_debug_pause', { sessionId: sessions[0], paused: true });
+    const stepped = await call('step_frames', {
+      sessionId: sessions[0],
+      frames: 2,
+      kind: 'physics',
+    });
+    assert.notEqual(stepped.isError, true, JSON.stringify(stepped));
+    assert.equal(stepped.structuredContent.paused, true);
+    assert.equal(
+      JSON.parse((await call('get_runtime_tree', { sessionId: sessions[1] })).content[0].text)
+        .paused,
+      false,
+    );
     for (const sessionId of sessions) {
       const tree = await call('get_runtime_tree', { sessionId, maxNodes: 1 });
       assert.notEqual(tree.isError, true, JSON.stringify(tree));

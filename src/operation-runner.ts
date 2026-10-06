@@ -1,3 +1,4 @@
+import { diagnosticCounts, parseDiagnostics } from './diagnostics.js';
 import { GodotProcess } from './godot-process.js';
 
 /** Own every finite child until its pipes close, including during cancellation/shutdown. */
@@ -41,15 +42,23 @@ export class OperationRunner {
 }
 
 export function processDiagnostics(child: GodotProcess) {
-  return [...child.output, ...child.errors].filter((line) =>
-    /SCRIPT ERROR:|Parse Error:|^ERROR:|^Error:|^Failed to/i.test(line),
-  );
+  return [...parseDiagnostics(child.output), ...parseDiagnostics(child.errors)];
+}
+
+export function processReport(child: GodotProcess) {
+  const diagnostics = processDiagnostics(child);
+  return { ...child.snapshot(), diagnostics, counts: diagnosticCounts(diagnostics) };
 }
 
 export function requireSuccess(child: GodotProcess) {
   const errors = processDiagnostics(child);
-  if (child.exitCode !== 0 || child.timedOut || child.truncated || errors.length) {
-    throw new Error(JSON.stringify({ ...child.snapshot(), diagnostics: errors }));
+  if (
+    child.exitCode !== 0 ||
+    child.timedOut ||
+    child.truncated ||
+    errors.some((item) => item.severity === 'error')
+  ) {
+    throw new Error(JSON.stringify(processReport(child)));
   }
   return { stdout: child.output.join('\n'), stderr: child.errors.join('\n') };
 }

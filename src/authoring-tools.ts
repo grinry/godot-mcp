@@ -2,15 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/server';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import { type OperationRunner, requireSuccess } from './operation-runner.js';
 import { projectFile, projectRoot } from './project-paths.js';
+import type { ToolSpecification } from './tool-types.js';
 
 const string = { type: 'string' };
 const sceneProperties = { projectPath: string, scenePath: string };
-export const authoringTools: Tool[] = [
+export const authoringTools: ToolSpecification[] = [
   {
     name: 'attach_script',
+    access: 'execute',
+    session: 'none',
     description:
       'Attach a compatible GDScript or C# script to a scene node. Executes project constructors; refuses unavailable scripts before saving. C# requires Godot .NET and a built assembly.',
     inputSchema: {
@@ -21,6 +24,8 @@ export const authoringTools: Tool[] = [
   },
   {
     name: 'set_main_scene',
+    access: 'execute',
+    session: 'none',
     description: 'Set the configured project main scene, preserving other settings and comments.',
     inputSchema: {
       type: 'object',
@@ -30,6 +35,8 @@ export const authoringTools: Tool[] = [
   },
   {
     name: 'set_node_reference',
+    access: 'execute',
+    session: 'none',
     description:
       'Bind an exported Node or NodePath script property to a compatible node in the same scene. Executes project constructors; preserves script references.',
     inputSchema: {
@@ -45,6 +52,8 @@ export const authoringTools: Tool[] = [
   },
   {
     name: 'get_class_info',
+    access: 'read',
+    session: 'none',
     description:
       'Read properties, methods, signals or enums of a built-in class from the installed Godot version. Reflection metadata, not prose documentation.',
     inputSchema: {

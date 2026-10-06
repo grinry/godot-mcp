@@ -36,7 +36,7 @@
   },
   "overrides": [
     {
-      "includes": ["src/index.ts"],
+      "includes": ["src/index.ts", "src/legacy-handlers.ts"],
       "linter": {
         "rules": {
           "suspicious": {
