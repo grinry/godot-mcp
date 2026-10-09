@@ -38,9 +38,13 @@ func start_session():
     if not packed is PackedScene:
         write_json(directory.path_join("ready.json"), {"ok": false, "error": "Configure a main scene or supply scenePath"})
         return
-    var scene = packed.instantiate()
-    root.add_child(scene)
-    current_scene = scene
+    # The launcher supplies --scene; reuse the engine-loaded scene.
+    if current_scene == null:
+        var scene = packed.instantiate()
+        root.add_child(scene)
+        current_scene = scene
+    if config.get("annotations", false):
+        root.add_child(preload("annotation_addon/runtime.tscn").instantiate())
     process_frame.connect(poll_request)
     write_json(directory.path_join("ready.json"), {"ok": true, "scene": scene_path})
 

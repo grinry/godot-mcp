@@ -1,0 +1,43 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="runtime.gd" id="1"]
+[ext_resource type="PackedScene" path="panel.tscn" id="2"]
+
+[sub_resource type="StyleBoxFlat" id="ModalBackground"]
+bg_color = Color(0.1, 0.11, 0.14, 1)
+content_margin_left = 12.0
+content_margin_top = 12.0
+content_margin_right = 12.0
+content_margin_bottom = 12.0
+
+[node name="MCPAnnotations" type="CanvasLayer"]
+layer = 128
+script = ExtResource("1")
+
+[node name="OpenAnnotations" type="Button" parent="."]
+unique_name_in_owner = true
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 140.0
+offset_bottom = 48.0
+text = "Annotate"
+
+[node name="AnnotationModal" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("ModalBackground")
+
+[node name="ModalScroll" type="ScrollContainer" parent="AnnotationModal"]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="AnnotationPanel" parent="AnnotationModal/ModalScroll" instance=ExtResource("2")]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 640)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3

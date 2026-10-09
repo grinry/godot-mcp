@@ -1,5 +1,6 @@
 import { authoringTools } from './authoring-tools.js';
 import { configurationTools } from './configuration-tools.js';
+import { editorPluginTools } from './editor-plugin-tools.js';
 import { legacyTools } from './legacy-tools.js';
 import { playtestTools } from './playtest-tools.js';
 import { overviewTool } from './project-overview.js';
@@ -11,6 +12,8 @@ import { extraTools } from './workflow-tools.js';
 
 /** Policy fallback and registry parity use the same metadata as discovery. */
 export const toolSpecifications = [
+  ...annotationTools,
+  ...editorPluginTools,
   ...legacyTools,
   ...authoringTools,
   ...configurationTools,
@@ -22,3 +25,5 @@ export const toolSpecifications = [
   ...extraTools,
   overviewTool,
 ];
+
+import { annotationTools } from './annotation-tools.js';

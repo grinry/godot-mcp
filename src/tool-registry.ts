@@ -1,6 +1,8 @@
 import type { Tool } from '@modelcontextprotocol/server';
+import { annotationTools, handleAnnotationTool } from './annotation-tools.js';
 import { authoringTools, handleAuthoringTool } from './authoring-tools.js';
 import { configurationTools, handleConfigurationTool } from './configuration-tools.js';
+import { editorPluginTools, handleEditorPluginTool } from './editor-plugin-tools.js';
 import type { GodotSession } from './godot-session.js';
 import type { LegacyToolHandlers } from './legacy-handlers.js';
 import { legacyTools } from './legacy-tools.js';
@@ -64,6 +66,20 @@ export function createToolRegistry(context: Context) {
     session,
     handle: async (args) => context.legacy[handler](args),
   }));
+  for (const { access, session, ...tool } of editorPluginTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) => handleEditorPluginTool(tool.name, args, signal),
+    });
+  for (const { access, session, ...tool } of annotationTools)
+    entries.push({
+      tool,
+      access,
+      session,
+      handle: (args, signal) => handleAnnotationTool(tool.name, args, context.scripts, signal),
+    });
   for (const { access, session, ...tool } of authoringTools)
     entries.push({
       tool,

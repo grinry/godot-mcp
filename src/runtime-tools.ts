@@ -74,7 +74,16 @@ export const runtimeTools: ToolSpecification[] = [
   tool(
     'start_debug_session',
     'Run a temporary live debug session. Does not install addons or change project settings. Replaces the current game run.',
-    { projectPath: project, scenePath: scene, headless: { type: 'boolean' } },
+    {
+      projectPath: project,
+      scenePath: scene,
+      headless: { type: 'boolean' },
+      annotations: {
+        type: 'boolean',
+        description:
+          'Show the debug-only Annotate button; submitted frames persist locally. Requires display rendering.',
+      },
+    },
     ['projectPath'],
   ),
   tool(
@@ -168,6 +177,10 @@ export async function handleRuntimeTool(
         : (await projectFile(root, args.scenePath, ['.tscn', '.scn'])).resource;
     if (args.headless !== undefined && typeof args.headless !== 'boolean')
       throw new Error('headless must be boolean');
+    if (args.annotations !== undefined && typeof args.annotations !== 'boolean')
+      throw new Error('annotations must be boolean');
+    if (args.annotations === true && args.headless === true)
+      throw new Error('Annotations require display rendering');
     return text(
       await session.live.start(
         godot,
@@ -176,6 +189,7 @@ export async function handleRuntimeTool(
         scene,
         args.headless === true,
         signal,
+        args.annotations === true,
       ),
     );
   }
