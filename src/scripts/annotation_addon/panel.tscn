@@ -1,0 +1,102 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="panel.gd" id="1"]
+[ext_resource type="Script" path="canvas.gd" id="2"]
+
+[node name="AnnotationPanel" type="VBoxContainer"]
+custom_minimum_size = Vector2(600, 460)
+script = ExtResource("1")
+
+[node name="CaptureToolbar" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="Sources" type="OptionButton" parent="CaptureToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+item_count = 1
+popup/item_0/text = "2D scene view"
+
+[node name="Capture" type="Button" parent="CaptureToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Capture frame"
+
+[node name="Kind" type="OptionButton" parent="CaptureToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+item_count = 2
+selected = 0
+popup/item_0/text = "Rectangle"
+popup/item_1/text = "Pin"
+popup/item_1/id = 1
+
+[node name="ToolbarSpacer" type="Control" parent="CaptureToolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Close" type="Button" parent="CaptureToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Close"
+
+[node name="AnnotationCanvas" type="Control" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 220)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("2")
+
+[node name="Comment" type="TextEdit" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+placeholder_text = "What should change in the marked region?"
+
+[node name="CommentToolbar" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="NodePath" type="LineEdit" parent="CommentToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Optional node path (attach explicitly)"
+
+[node name="AddComment" type="Button" parent="CommentToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add comment"
+
+[node name="ClearDraft" type="Button" parent="CommentToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Clear draft"
+
+[node name="Marks" type="ItemList" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+
+[node name="SubmitToolbar" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="Delete" type="Button" parent="SubmitToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Delete selected"
+
+[node name="Undo" type="Button" parent="SubmitToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Undo last"
+
+[node name="Submit" type="Button" parent="SubmitToolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Submit to MCP"
+
+[node name="Status" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Capture a frame to annotate. Submitted comments stay local until an MCP client reads them."
+autowrap_mode = 2

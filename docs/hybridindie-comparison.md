@@ -19,6 +19,23 @@ Research date: 2026-10-06. Last updated: 2026-10-06. This living document tracks
 
 Statuses become implemented only after code and relevant checks are complete. Verification results and limitations are recorded below as work progresses.
 
+### Godot annotations
+
+2026-10-08: added a bundled, automatically installed editor addon, opt-in temporary
+game overlay, and six project-scoped annotation tools. Original/marked screenshots
+and comments persist locally for MCP retrieval and revision-guarded resolution.
+Real Godot 4.7.1 checks cover rendered 2D/3D/game captures, editor activation/launch,
+actual MCP retrieval, coordinates/pause restoration and export exclusion. Client
+integration checks pass. See the [contract](domains/annotations.md) and
+[living plan](plans/2026-10-08_godot-annotations.md). First activation in an open
+editor needs save/reopen; custom SceneTree launch overrides are preserved;
+automatic chat submission and live overlays remain deferred.
+
+Enablement follow-up: three generic plugin configuration tools now list,
+enable and disable saved plugin settings. Ensure re-enables existing disabled
+addons and distinguishes configured enablement from confirmed editor presence.
+An already-open editor still needs save/reopen; no live checkbox RPC is claimed.
+
 ### Verification log
 
 - 2026-10-06, first batch on `feat/authoring-playtest-foundation`: TypeScript build and targeted real-Godot 4.7.1 tests passed. Scene duplication preserved scripts, ownership, groups, internal NodePaths/exported Node references and persistent signals after reload. Scene instancing preserved the source-scene link and refused recursion. Resource tests covered text/binary files, external material references, dry runs, stale hashes, invalid properties, symlink confinement and concurrent create/write refusal.

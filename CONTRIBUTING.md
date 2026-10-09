@@ -294,3 +294,19 @@ Scene inspection and transaction validation live in `src/scene-tools.ts` and `sr
 `src/sampling-tools.ts` validates frame budgets, selections/deadlines and summarizes bounded evidence. The live bridge shares `advance_paused` with stepping/playtests, and captures a pre-step sample followed by `(samples - 1) * intervalFrames` resumed callbacks. Test counters and vectors against real engine frames, not sleeps. Detect unsupported/truncated property values, mark unavailable renderer monitors, retain global frame counters/units/timestamps, and never silently serialize overflowing summary numbers as null without a label. Keep response/time budgets aligned with `LiveSession.request`; cancellation/deadlines must stop the owned game and remove pending IPC. Sampling changes runtime state and is execution-policy gated. Modern clients require a session handle.
 
 Screenshot baseline assertions use `src/screenshot-comparison.ts` and an isolated `screenshot_comparison.gd` engine operation through the shared `OperationRunner`. Keep baseline reads confined, snapshot them before game replacement, bound PNG bytes/dimensions before decoding, and preserve explicit baseline-update ownership. `tests/screenshot-comparison.test.mjs` covers pixel/alpha tolerance boundaries, dimension mismatches, immutable snapshots, preflight refusal and cancellation cleanup; rendered `tests/playtest.test.mjs` covers the complete MCP workflow.
+
+### Annotation addon development
+
+The addon source lives in `src/scripts/annotation_addon/`. Author stable UI in
+the `.tscn` files and behavior in GDScript. `npm run build` bundles the addon,
+copies LICENSE and generates its checksum manifest; never edit generated hashes.
+Keep the plugin.cfg version, store.gd VERSION and build manifest version aligned
+when addon behavior changes. Run `tests/annotations.test.mjs` with
+`GODOT_TEST_PATH`, `GODOT_TEST_RENDER=true` and `GODOT_TEST_EXPORT=true` for real
+editor/runtime/export checks. Preserve the default addon-free debug session path.
+
+`editor-plugin-config.ts` owns enabled-plugin array parsing/patching shared by
+annotation installation and `editor-plugin-tools.ts`. Plugin tools operate on
+saved settings without running project scripts. Do not describe a configuration
+write as confirmed live editor activation. Cover disabled existing addons, config
+preservation, preview guards and editor restart behavior in regression tests.

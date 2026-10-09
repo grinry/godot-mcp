@@ -34,6 +34,7 @@ export class LiveSession {
     scene: string,
     headless: boolean,
     signal?: AbortSignal,
+    annotations = false,
   ) {
     return this.enqueue(async () => {
       signal?.throwIfAborted();
@@ -42,11 +43,15 @@ export class LiveSession {
       this.token = randomUUID();
       try {
         const config = join(this.directory, 'config.json');
-        await writeFile(config, JSON.stringify({ token: this.token, scene }), { mode: 0o600 });
+        await writeFile(config, JSON.stringify({ token: this.token, scene, annotations }), {
+          mode: 0o600,
+        });
         this.child = await this.slot.start(godot, [
           ...(headless ? ['--headless'] : []),
           '--path',
           root,
+          '--scene',
+          scene,
           '--script',
           script,
           '--',

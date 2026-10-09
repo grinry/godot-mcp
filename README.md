@@ -335,6 +335,50 @@ GODOT_TEST_PATH=/path/to/godot npm test
 
 ## Live visual feedback and input
 
+### Godot annotations
+
+Any compatible MCP client or agent can use the annotation tools; no client-specific
+API is required.
+
+Call `ensure_annotation_addon` with `projectPath` to install and enable the bundled
+editor addon automatically. Save and reopen an already-open editor after first
+installation; `get_annotation_status` distinguishes installation from activation.
+In the **Annotations** bottom panel, capture a 2D/3D scene viewport, draw a rectangle
+or pin, add comments and submit. Editor-launched games also get an **Annotate**
+button that pauses gameplay while a frozen frame is annotated.
+
+For a temporary game without addon installation, call `start_debug_session` with
+`annotations: true` and `headless: false`. Godot 4.7.1 is verified.
+
+Ask your MCP client to call `list_annotations`, then `get_annotation` for original
+and marked PNG images plus comments/scene context. Use `resolve_annotation` with
+the returned revision to resolve or reopen a comment. Submission saves locally;
+it does not automatically start a chat turn. Data persists under the hidden
+`.godot-mcp/annotations/` directory. `remove_annotation_addon` preserves that data
+and refuses modified addon files. Setup/removal and resolution respect read-only
+policy; all annotation tools respect allowed project roots.
+
+See the [annotation contract](docs/domains/annotations.md) for tool schemas,
+limits, export isolation and activation details. Use a local build until this
+feature is released.
+
+### Editor plugin configuration
+
+`get_editor_plugins` lists installed addons and their saved enablement. Use
+`enable_editor_plugin` or `disable_editor_plugin` with `projectPath` and
+`pluginPath` (for example `res://addons/godot_mcp_annotations/plugin.cfg`). Both
+support `dryRun` and `expectedHash`, preserve other plugins/comments and are
+blocked by read-only policy. Enabling validates the config and script paths;
+disabling can remove a stale entry whose files no longer exist.
+
+These tools change saved configuration. Save and reopen an already-open Godot
+editor to apply it; they do not toggle the live checkbox remotely. Annotation
+`ensure` also re-enables an already-installed disabled addon. Its
+`configuredEnabled` reports the saved setting, while `editorReady` and
+`activation` report whether recent matching addon presence confirms activation.
+
+### Temporary debug sessions
+
 Call `start_debug_session` with `projectPath` and optional `scenePath` to run a game with the temporary debug bridge. If no scene is supplied, the configured main scene is used. `capture_screenshot` returns a PNG of that running game's current state; `capture_scene_screenshot` starts a separate fresh scene.
 
 The bridge uses a private temporary directory with authenticated requests, bounded messages and unique response IDs. It installs no addon, changes no autoload settings, and opens no network port. It runs only in the game process explicitly launched by `start_debug_session`; exported games do not include it. Godot may still generate its normal `.godot` import cache.
