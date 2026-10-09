@@ -1,5 +1,13 @@
 # @grinry/godot-mcp
 
+## 0.5.0
+
+### Minor Changes
+
+- 28ff776: Add automatically installed Godot annotations with persistent screenshots/comments, plus tools to list, enable and disable editor plugins with clear activation status.
+
+  Pending marks remain visible while comments are being written.
+
 ## 0.4.0
 
 ### Minor Changes
