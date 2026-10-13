@@ -1,5 +1,11 @@
 # @grinry/godot-mcp
 
+## 0.6.0
+
+### Minor Changes
+
+- f68ea68: Editor-launched games no longer show an Annotate button; press Cmd/Ctrl+Shift+A to annotate instead, and change the shortcut from the editor's Annotations panel.
+
 ## 0.5.0
 
 ### Minor Changes
