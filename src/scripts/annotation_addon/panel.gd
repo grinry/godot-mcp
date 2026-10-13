@@ -2,8 +2,10 @@
 extends VBoxContainer
 
 const Store = preload("store.gd")
+const AnnotationShortcut = preload("shortcut.gd")
 signal capture_requested(source: String)
 signal close_requested
+signal shortcut_changed(text: String)
 
 @onready var canvas = %AnnotationCanvas
 @onready var comment = %Comment
@@ -15,6 +17,8 @@ var context: Dictionary = {}
 var pending_region: Dictionary = {}
 var capture_busy = false
 var dirty = false
+var shortcut_text = AnnotationShortcut.DEFAULT
+var recording_shortcut = false
 
 func _ready() -> void:
     %Capture.pressed.connect(request_capture)
@@ -27,6 +31,10 @@ func _ready() -> void:
     %Kind.item_selected.connect(func(index): canvas.kind = "rectangle" if index == 0 else "pin")
     canvas.region_selected.connect(func(region): pending_region = region; comment.grab_focus(); status.text = "Write a comment, then click Add comment.")
     resized.connect(func(): canvas.queue_redraw())
+    %ShortcutButton.pressed.connect(start_shortcut_recording)
+    %ShortcutReset.pressed.connect(func(): stop_shortcut_recording(); change_shortcut(AnnotationShortcut.DEFAULT))
+    visibility_changed.connect(cancel_hidden_recording)
+    set_process_input(false)
 
 func configure(editor: bool) -> void:
     sources.clear()
@@ -35,6 +43,59 @@ func configure(editor: bool) -> void:
         sources.add_item("3D scene view (viewport 1)")
     else:
         sources.add_item("Running game")
+    # Only the editor can persist the shortcut; the game panel just uses it.
+    %ShortcutSettings.visible = editor
+
+func show_shortcut(text: String) -> void:
+    shortcut_text = AnnotationShortcut.normalize(text)
+    if not recording_shortcut:
+        %ShortcutButton.text = AnnotationShortcut.label(shortcut_text)
+
+func start_shortcut_recording() -> void:
+    recording_shortcut = true
+    set_process_input(true)
+    %ShortcutButton.text = "Press keys..."
+    status.text = "Press the new game annotation shortcut. Include Cmd/Ctrl, Alt or Shift, or use a function key. Esc cancels."
+
+func stop_shortcut_recording() -> void:
+    if not recording_shortcut:
+        return
+    recording_shortcut = false
+    set_process_input(false)
+    %ShortcutButton.text = AnnotationShortcut.label(shortcut_text)
+
+func cancel_hidden_recording() -> void:
+    # A hidden panel must not keep capturing editor key presses.
+    if not is_visible_in_tree():
+        stop_shortcut_recording()
+
+func _input(event: InputEvent) -> void:
+    if not recording_shortcut:
+        return
+    if event is InputEventMouseButton and event.pressed:
+        stop_shortcut_recording()
+        status.text = "Shortcut change cancelled."
+        return
+    if not event is InputEventKey or not event.pressed:
+        return
+    # Keep the key away from editor shortcuts while recording it.
+    get_viewport().set_input_as_handled()
+    if event.echo or AnnotationShortcut.is_modifier(event.keycode):
+        return
+    if event.keycode == KEY_ESCAPE and event.get_modifiers_mask() == 0:
+        stop_shortcut_recording()
+        status.text = "Shortcut change cancelled."
+        return
+    var text = AnnotationShortcut.from_event(event)
+    if text.is_empty():
+        status.text = "%s cannot be used. Include Cmd/Ctrl, Alt or Shift, or use a function key." % event.as_text()
+        return
+    stop_shortcut_recording()
+    change_shortcut(text)
+
+func change_shortcut(text: String) -> void:
+    status.text = "Game annotation shortcut: %s. It applies to the next game launched from the editor." % AnnotationShortcut.label(text)
+    shortcut_changed.emit(text)
 
 func has_draft() -> bool:
     return dirty or not pending_region.is_empty() or not comment.text.strip_edges().is_empty()

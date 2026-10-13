@@ -2,7 +2,7 @@
 extends RefCounted
 
 const DIRECTORY = "res://.godot-mcp/annotations"
-const VERSION = "1.0.2"
+const VERSION = "1.1.0"
 const MAX_PIXELS = 16777216
 const MAX_IMAGE_BYTES = 8388608
 

@@ -4,6 +4,7 @@ extends EditorPlugin
 const PanelScene = preload("panel.tscn")
 const Store = preload("store.gd")
 const ExportGuard = preload("export_guard.gd")
+const AnnotationShortcut = preload("shortcut.gd")
 var panel
 var export_guard
 var elapsed = 0.0
@@ -14,6 +15,9 @@ func _enter_tree() -> void:
     panel.configure(true)
     panel.capture_requested.connect(capture)
     panel.close_requested.connect(hide_bottom_panel)
+    panel.shortcut_changed.connect(save_shortcut)
+    panel.show_shortcut(game_shortcut())
+    EditorInterface.get_editor_settings().settings_changed.connect(refresh_shortcut)
     export_guard = ExportGuard.new()
     add_export_plugin(export_guard)
     Store.presence("editor")
@@ -26,6 +30,9 @@ func _process(delta: float) -> void:
 
 func _exit_tree() -> void:
     Store.clear_presence("editor")
+    var settings = EditorInterface.get_editor_settings()
+    if settings != null and settings.settings_changed.is_connected(refresh_shortcut):
+        settings.settings_changed.disconnect(refresh_shortcut)
     if is_instance_valid(panel):
         remove_control_from_bottom_panel(panel)
         panel.queue_free()
@@ -50,6 +57,27 @@ func capture(source: String) -> void:
     panel.set_capture(image, metadata)
     make_bottom_panel_item_visible(panel)
 
+# The shortcut is a per-user editor setting, so it follows the developer across
+# projects without changing project.godot.
+func game_shortcut() -> String:
+    var settings = EditorInterface.get_editor_settings()
+    if not settings.has_setting(AnnotationShortcut.SETTING):
+        return AnnotationShortcut.DEFAULT
+    return AnnotationShortcut.normalize(str(settings.get_setting(AnnotationShortcut.SETTING)))
+
+func save_shortcut(text: String) -> void:
+    var settings = EditorInterface.get_editor_settings()
+    if text == AnnotationShortcut.DEFAULT:
+        if settings.has_setting(AnnotationShortcut.SETTING):
+            settings.erase(AnnotationShortcut.SETTING)
+    else:
+        settings.set_setting(AnnotationShortcut.SETTING, text)
+    panel.show_shortcut(text)
+
+func refresh_shortcut() -> void:
+    if is_instance_valid(panel):
+        panel.show_shortcut(game_shortcut())
+
 func _get_unsaved_status(_for_scene: String) -> String:
     return "MCP annotation comments have not been submitted." if is_instance_valid(panel) and panel.has_draft() else ""
 
@@ -63,4 +91,5 @@ func _run_scene(scene: String, args: PackedStringArray) -> PackedStringArray:
     prefix.append_array(["--script", ProjectSettings.globalize_path("res://addons/godot_mcp_annotations/game_session.gd"), "--"])
     prefix.append_array(user_args)
     prefix.append("--godot-mcp-annotation-scene=" + scene)
+    prefix.append(AnnotationShortcut.ARGUMENT + game_shortcut())
     return prefix
