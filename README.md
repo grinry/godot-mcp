@@ -344,11 +344,13 @@ Call `ensure_annotation_addon` with `projectPath` to install and enable the bund
 editor addon automatically. Save and reopen an already-open editor after first
 installation; `get_annotation_status` distinguishes installation from activation.
 In the **Annotations** bottom panel, capture a 2D/3D scene viewport, draw a rectangle
-or pin, add comments and submit. Editor-launched games also get an **Annotate**
-button that pauses gameplay while a frozen frame is annotated.
+or pin, add comments and submit. In editor-launched games, press Cmd+Shift+A on macOS
+(Ctrl+Shift+A elsewhere) to pause gameplay and annotate a frozen frame; press it again to
+close the panel. Change the shortcut with **Game shortcut** in the **Annotations** panel.
 
 For a temporary game without addon installation, call `start_debug_session` with
-`annotations: true` and `headless: false`. Godot 4.7.1 is verified.
+`annotations: true` and `headless: false`; it uses the default shortcut. Godot 4.7.1 is
+verified.
 
 Ask your MCP client to call `list_annotations`, then `get_annotation` for original
 and marked PNG images plus comments/scene context. Use `resolve_annotation` with

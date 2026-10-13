@@ -65,14 +65,39 @@ unsubmitted marks. The addon never edits scenes or auto-resolves comments.
 An enabled addon adds a temporary annotation overlay to editor-launched games
 by extending their launch arguments with a custom SceneTree. Existing user
 arguments are preserved; an existing `--script`/`-s` override is not replaced.
-The helper loads the selected scene and normal project autoloads. Its **Annotate**
-button captures the frame with the annotation UI hidden, pauses the game and
-shows the frozen panel. Closing restores the preceding pause state. Capture is
-display-only; there is no mobile input workflow promised by this developer tool.
+The helper loads the selected scene and normal project autoloads. The overlay
+draws no on-screen control. Pressing the game annotation shortcut captures the
+frame, pauses the game and shows the frozen panel; pressing it again, or
+**Close**, restores the preceding pause state. The shortcut is consumed by the
+overlay, so the game does not also receive it. The game prints the active
+shortcut to its output at startup. Capture is display-only; there is no mobile
+input workflow promised by this developer tool.
+
+### Game annotation shortcut
+
+The default is `CmdOrCtrl+Shift+A`: Command+Shift+A on macOS and
+Ctrl+Shift+A elsewhere. Change it with **Game shortcut** in the editor's
+**Annotations** panel: click the button, then press the new combination; Esc or
+a mouse click cancels and **Reset** restores the default. A shortcut needs a
+Cmd/Ctrl, Ctrl, Meta, Alt or Shift modifier unless it is a function key.
+
+The value is a per-user editor setting, `godot_mcp/annotations/game_shortcut`,
+shared by every project opened with that Godot editor configuration; it is not
+written to project.godot. It is absent while the default is used. The editor
+passes the normalized value to each newly launched game as the user argument
+`--godot-mcp-annotation-shortcut=<shortcut>`. A running game keeps the shortcut
+it started with. An invalid value falls back to the default with a warning.
+
+Shortcut text is `+`-separated modifiers followed by one Godot key name, for
+example `Alt+F5` or `Ctrl+Shift+Space`. Modifiers are case-insensitive and may
+appear once each: `CmdOrCtrl`, `Ctrl`, `Meta`, `Alt` and `Shift`. `CmdOrCtrl`
+uses Godot's command/control autoremap and cannot be combined with `Ctrl` or
+`Meta`. Matching is exact: extra held modifiers do not trigger it.
 
 `start_debug_session` accepts `annotations: true` for the same overlay without
-addon installation. It refuses `headless: true` with annotations. Default sessions
-retain existing behavior. Submitted data persists after temporary-session cleanup.
+addon installation. That session always uses the default shortcut. It refuses
+`headless: true` with annotations. Default sessions retain existing behavior.
+Submitted data persists after temporary-session cleanup.
 
 Submission saves local files. To act on them, ask the MCP client to read them;
 submission does not automatically start an agent turn or send a message.

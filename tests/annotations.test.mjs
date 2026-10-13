@@ -350,7 +350,7 @@ func check():
     });
     assert.notEqual(result.content[1].data, result.content[2].data);
     // Parse every editor/runtime script in the installed project too.
-    for (const name of ['plugin.gd', 'game_session.gd']) {
+    for (const name of ['plugin.gd', 'game_session.gd', 'shortcut.gd']) {
       const checked = await runEngine(root, [
         '--headless',
         '--check-only',
@@ -360,6 +360,100 @@ func check():
       assert.equal(checked.code, 0, checked.output);
       assert.doesNotMatch(checked.output, /SCRIPT ERROR|Parse Error|ERROR:/);
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('real Godot runtime overlay opens by configurable shortcut instead of a button', {
+  skip: !godot,
+  timeout: 30000,
+}, async () => {
+  const root = await fixture();
+  try {
+    await changeAddon(root, scripts, false, {});
+    await writeFile(
+      join(root, 'check.gd'),
+      `extends SceneTree
+const AnnotationShortcut = preload("res://addons/godot_mcp_annotations/shortcut.gd")
+func key(keycode, command = false, shift = false, alt = false, echo = false):
+    var event = InputEventKey.new()
+    event.keycode = keycode
+    event.pressed = true
+    event.echo = echo
+    event.shift_pressed = shift
+    event.alt_pressed = alt
+    if command and AnnotationShortcut.command_is_meta():
+        event.meta_pressed = true
+    elif command:
+        event.ctrl_pressed = true
+    return event
+func _initialize():
+    call_deferred("check")
+func check():
+    var fallback = AnnotationShortcut.parse(AnnotationShortcut.DEFAULT)
+    assert(fallback.keycode == KEY_A and fallback.shift_pressed and fallback.command_or_control_autoremap)
+    for valid in ["Alt+F5", "F5", "ctrl + shift + Space", "Meta+Alt+Kp 1"]:
+        assert(AnnotationShortcut.parse(valid) != null, valid)
+    for invalid in ["", "A", "Shift", "Shift+Shift+A", "CmdOrCtrl+Ctrl+A", "Hyper+A", "Ctrl+Nope", "Ctrl+"]:
+        assert(AnnotationShortcut.parse(invalid) == null, invalid)
+    assert(AnnotationShortcut.normalize("A") == AnnotationShortcut.DEFAULT)
+    assert(AnnotationShortcut.from_event(key(KEY_A, true, true)) == "CmdOrCtrl+Shift+A")
+    assert(AnnotationShortcut.from_event(key(KEY_F5)) == "F5")
+    assert(AnnotationShortcut.from_event(key(KEY_A)) == "")
+    assert(AnnotationShortcut.from_event(key(KEY_SHIFT, false, true)) == "")
+    var passed = AnnotationShortcut.from_arguments(PackedStringArray(["--godot-mcp-annotation-shortcut=Alt+F5"]))
+    assert(passed.keycode == KEY_F5 and passed.alt_pressed)
+    assert(AnnotationShortcut.from_arguments(PackedStringArray()).is_match(fallback))
+
+    var panel = load("res://addons/godot_mcp_annotations/panel.tscn").instantiate()
+    root.add_child(panel)
+    panel.configure(false)
+    assert(not panel.get_node("%ShortcutSettings").visible)
+    panel.configure(true)
+    assert(panel.get_node("%ShortcutSettings").visible)
+    panel.show_shortcut(AnnotationShortcut.DEFAULT)
+    var recorded = []
+    panel.shortcut_changed.connect(func(text): recorded.append(text))
+    panel.start_shortcut_recording()
+    root.push_input(key(KEY_SHIFT, false, true))
+    root.push_input(key(KEY_A))
+    assert(recorded.is_empty() and panel.recording_shortcut)
+    root.push_input(key(KEY_ESCAPE))
+    assert(recorded.is_empty() and not panel.recording_shortcut)
+    assert(panel.get_node("%ShortcutButton").text == fallback.as_text())
+    panel.start_shortcut_recording()
+    root.push_input(key(KEY_F5, false, false, true))
+    assert(recorded == ["Alt+F5"] and not panel.recording_shortcut)
+    panel.start_shortcut_recording()
+    panel.hide()
+    assert(not panel.recording_shortcut)
+    panel.queue_free()
+
+    var overlay = load("res://addons/godot_mcp_annotations/runtime.tscn").instantiate()
+    root.add_child(overlay)
+    assert(not overlay.has_node("OpenAnnotations"))
+    var modal = overlay.get_node("AnnotationModal")
+    overlay.get_node("AnnotationModal/ModalScroll/AnnotationPanel").dirty = true
+    root.push_input(key(KEY_A, false, true))
+    assert(not modal.visible and not paused)
+    root.push_input(key(KEY_A, true, true))
+    assert(modal.visible and paused)
+    root.push_input(key(KEY_A, true, true, false, true))
+    assert(modal.visible and paused)
+    root.push_input(key(KEY_A, true, true))
+    assert(not modal.visible and not paused)
+    overlay.queue_free()
+    await process_frame
+    print("ANNOTATION_SHORTCUT_OK")
+    quit()
+`,
+    );
+    const checked = await runEngine(root, ['--headless', '--script', 'check.gd']);
+    assert.equal(checked.code, 0, checked.output);
+    assert.doesNotMatch(checked.output, /SCRIPT ERROR|Parse Error|ERROR:/);
+    assert.match(checked.output, /ANNOTATION_SHORTCUT_OK/);
+    assert.match(checked.output, /MCP annotations: press .+A to annotate the running game\./);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -471,6 +565,8 @@ func check_overlay():
     await get_tree().process_frame
     assert(get_tree().root.has_node("MCPAnnotations"))
     assert("retained-user-argument" in OS.get_cmdline_user_args())
+    var shortcut = get_tree().root.get_node("MCPAnnotations").open_shortcut
+    assert(shortcut.keycode == KEY_F5 and shortcut.alt_pressed and not shortcut.shift_pressed)
     print("EDITOR_GAME_OVERLAY_OK")
     get_tree().quit()
 `,
@@ -497,6 +593,10 @@ func check_overlay():
     assert.equal(first.code, 0, first.output);
     assert.doesNotMatch(first.output, /SCRIPT ERROR|ERROR:/);
     const args = JSON.parse(await readFile(join(root, 'arguments.json'), 'utf8'));
+    // The editor passes the developer's saved shortcut; substitute one to prove the game uses it.
+    const shortcut = args.findIndex((arg) => arg.startsWith('--godot-mcp-annotation-shortcut='));
+    assert.ok(shortcut > args.indexOf('--'), JSON.stringify(args));
+    args[shortcut] = '--godot-mcp-annotation-shortcut=Alt+F5';
     const played = await runEngine(root, args);
     assert.equal(played.code, 0, played.output);
     assert.doesNotMatch(played.output, /SCRIPT ERROR|ERROR:/);

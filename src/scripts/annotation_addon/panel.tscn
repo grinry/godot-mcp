@@ -34,6 +34,28 @@ popup/item_1/id = 1
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="ShortcutSettings" type="HBoxContainer" parent="CaptureToolbar"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+
+[node name="ShortcutLabel" type="Label" parent="CaptureToolbar/ShortcutSettings"]
+layout_mode = 2
+text = "Game shortcut"
+
+[node name="ShortcutButton" type="Button" parent="CaptureToolbar/ShortcutSettings"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 0)
+layout_mode = 2
+tooltip_text = "Opens annotations in games launched from the editor. Click, then press a new key combination; Esc cancels."
+text = "Shift+Command+A"
+
+[node name="ShortcutReset" type="Button" parent="CaptureToolbar/ShortcutSettings"]
+unique_name_in_owner = true
+layout_mode = 2
+tooltip_text = "Restore the default game annotation shortcut."
+text = "Reset"
+
 [node name="Close" type="Button" parent="CaptureToolbar"]
 unique_name_in_owner = true
 layout_mode = 2

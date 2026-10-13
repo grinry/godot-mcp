@@ -81,7 +81,7 @@ export const runtimeTools: ToolSpecification[] = [
       annotations: {
         type: 'boolean',
         description:
-          'Show the debug-only Annotate button; submitted frames persist locally. Requires display rendering.',
+          'Enable the debug-only annotation overlay, opened with Cmd/Ctrl+Shift+A; submitted frames persist locally. Requires display rendering.',
       },
     },
     ['projectPath'],
