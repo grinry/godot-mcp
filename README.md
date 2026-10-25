@@ -97,7 +97,7 @@ This README describes the code in this checkout. Features with pending changeset
 ## Requirements
 
 - [Godot Engine 4](https://godotengine.org/download) installed on your system
-- Node.js (>=22.14.0) and npm
+- Node.js (>=22.23.4) and npm
 - An AI agent that supports MCP
 
 ## Quick Start
@@ -304,7 +304,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Validation and feedback tools
 
-Requires Node.js **22.14 or newer** and Godot 4. The MCP SDK has been upgraded and the unused Axios dependency removed.
+Requires Node.js **22.23.4 or newer** and Godot 4. The MCP SDK has been upgraded and the unused Axios dependency removed.
 
 | Tool | Behavior |
 |---|---|
@@ -404,7 +404,7 @@ Install [GUT](https://github.com/bitwes/Gut) in `addons/gut`, then import the pr
 
 ## Desktop bundle and Codex plugin
 
-`npm run build:mcpb` creates `dist/godot-mcp-VERSION.mcpb`. It rebuilds the source, bundles runtime dependencies, copies all Godot scripts, validates the manifest, and verifies that the bundled server exposes the same MCP tools. Import the bundle into a desktop client supporting MCPB and configure its Godot executable path. Node.js >=22.14 and Godot must be available on the client machine. CI verifies the bundle; successful npm releases attach it to the matching GitHub release. Desktop installation itself has not been automated.
+`npm run build:mcpb` creates `dist/godot-mcp-VERSION.mcpb`. It rebuilds the source, bundles runtime dependencies, copies all Godot scripts, validates the manifest, and verifies that the bundled server exposes the same MCP tools. Import the bundle into a desktop client supporting MCPB and configure its Godot executable path. Node.js >=22.23.4 and Godot must be available on the client machine. CI verifies the bundle; successful npm releases attach it to the matching GitHub release. Desktop installation itself has not been automated.
 
 The repository also includes `.codex-plugin/plugin.json` and `.codex-plugin/mcp.json` for local/repository plugin distribution using the [supported Codex compatibility layout](https://developers.openai.com/plugins/build/plugins). Its launcher uses the published `@grinry/godot-mcp` package. Changesets updates the plugin version when preparing a release. The Codex CLI configuration above remains available for direct MCP registration.
 
@@ -628,7 +628,7 @@ Set `GODOT_READ_ONLY=true` to allow metadata/discovery/log/reflection queries an
 
 ### Windows and WSL
 
-Use an executable file in `GODOT_PATH`, not its containing directory. The server passes JSON and paths as native argument arrays, including spaces and quotes. CI runs portable regression checks on Windows, macOS and Linux with Node 22.14 and 24; platform coverage does not imply all engine/render/.NET combinations are verified.
+Use an executable file in `GODOT_PATH`, not its containing directory. The server passes JSON and paths as native argument arrays, including spaces and quotes. CI runs portable regression checks on Windows, macOS and Linux with Node 22.23.4 and 24; platform coverage does not imply all engine/render/.NET combinations are verified.
 
 In WSL, use a Linux Godot binary and Linux project paths. Alternatively run both this server and Godot natively on Windows with Windows paths. Directly combining WSL project paths with a Windows `.exe` is rejected with an actionable error; binary-aware cross-environment path translation is not supported.
 

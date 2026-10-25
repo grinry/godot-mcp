@@ -27,7 +27,7 @@
   },
   "compatibility": {
     "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=22.14.0" }
+    "runtimes": { "node": ">=22.23.4" }
   },
   "keywords": ["godot", "game-engine", "game-development"]
 }

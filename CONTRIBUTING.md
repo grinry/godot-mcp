@@ -253,7 +253,7 @@ credentials; only run it when you intend to publish.
 
 ## Upstream adaptations and testing
 
-Use Node.js >=22.14. Run `npm run check` and `npm test` before proposing changes. The default test suite uses disposable files and child processes; set `GODOT_TEST_PATH` to include Godot integration coverage. No tests modify a real project. Screenshot rendering requires a display, and successful exports additionally require matching export templates.
+Use Node.js >=22.23.4. Run `npm run check` and `npm test` before proposing changes. The default test suite uses disposable files and child processes; set `GODOT_TEST_PATH` to include Godot integration coverage. No tests modify a real project. Screenshot rendering requires a display, and successful exports additionally require matching export templates.
 
 New process and workflow code lives in `src/godot-process.ts`, `src/project-files.ts`, `src/project-paths.ts`, and `src/workflow-tools.ts`. Keep changeset summaries to one or two user-facing sentences; record upstream references in PR descriptions, and preserve this project’s package metadata.
 
