@@ -1,5 +1,11 @@
 # @grinry/godot-mcp
 
+## 0.6.1
+
+### Patch Changes
+
+- b23cb5d: Require Node.js 22.23.4 or newer, the first 22.x release with the October 2026 security fixes.
+
 ## 0.6.0
 
 ### Minor Changes
