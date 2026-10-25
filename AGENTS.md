@@ -47,7 +47,7 @@ Use npm and keep `package-lock.json` synchronized with dependency changes.
 - `npm run inspector`: open the MCP Inspector against the built server.
 - `npm pack --dry-run`: inspect package contents without publishing.
 
-The package declares Node.js >=22.14; the release workflow uses Node.js 24. Keep runtime changes compatible with the declared minimum unless intentionally updating it.
+The package declares Node.js >=22.23.4 (the October 2026 security release); the release workflow uses Node.js 24. Keep runtime changes compatible with the declared minimum unless intentionally updating it.
 
 ## Implementation conventions
 
